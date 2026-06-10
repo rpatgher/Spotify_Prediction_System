@@ -5,8 +5,8 @@ def play_round() -> str:
     secret_number = random.randint(1, 10)
     guess = random.randint(1, 10)
     if guess == secret_number:
-        return f"Guess: {guess}, Secret: {secret_number} -> You win!"
-    return f"Guess: {guess}, Secret: {secret_number} -> Try again."
+        return f"Guess: {guess} -> You win!"
+    return f"Guess: {guess} -> Try again."
 
 
 if __name__ == "__main__":
