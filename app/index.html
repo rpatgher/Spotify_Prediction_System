@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrackVision AI</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['"Space Grotesk"', "system-ui", "sans-serif"],
+            sans: ['"Plus Jakarta Sans"', "system-ui", "sans-serif"],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    :root { color-scheme: dark; }
+    html, body, #root { height: 100%; }
+    body {
+      margin: 0;
+      font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+      background:
+        radial-gradient(1200px 600px at 80% -10%, oklch(0.24 0.05 162 / 0.5), transparent 60%),
+        radial-gradient(900px 500px at 0% 110%, oklch(0.22 0.05 178 / 0.4), transparent 60%),
+        oklch(0.145 0.015 190);
+      color: #fff;
+      -webkit-font-smoothing: antialiased;
+    }
+    ::selection { background: oklch(0.66 0.2 162 / 0.4); }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: oklch(0.3 0.02 190); border-radius: 10px; border: 2px solid transparent; background-clip: content-box; }
+    ::-webkit-scrollbar-thumb:hover { background: oklch(0.38 0.02 190); background-clip: content-box; }
+
+    /* ---- surfaces ---- */
+    .card {
+      background: oklch(0.185 0.018 190);
+      border: 1px solid oklch(1 0 0 / 0.07);
+      border-radius: 18px;
+      box-shadow: 0 18px 40px -24px rgba(0,0,0,0.7);
+    }
+
+    /* ---- buttons ---- */
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 12px 20px; border-radius: 12px;
+      font-weight: 600; font-size: 14px; color: #fff; cursor: pointer;
+      background: linear-gradient(135deg, oklch(0.62 0.2 162), oklch(0.6 0.18 178));
+      box-shadow: 0 12px 26px -10px oklch(0.6 0.2 162 / 0.8);
+      transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+      border: none;
+    }
+    .btn-primary:hover { transform: translateY(-1px); filter: brightness(1.06); box-shadow: 0 16px 32px -10px oklch(0.6 0.2 162 / 0.9); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-ghost {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 11px 16px; border-radius: 12px;
+      font-weight: 600; font-size: 14px; color: rgba(178,178,178,.75); cursor: pointer;
+      background: oklch(0.22 0.02 190); border: 1px solid oklch(1 0 0 / 0.08);
+      transition: background .15s ease, color .15s ease, border-color .15s ease;
+    }
+    .btn-ghost:hover { background: oklch(0.26 0.02 190); color: #fff; border-color: oklch(1 0 0 / 0.14); }
+
+    .icon-btn {
+      display: grid; place-items: center; width: 38px; height: 38px; border-radius: 11px;
+      color: rgba(178,178,178,.5); cursor: pointer;
+      background: oklch(0.22 0.02 190); border: 1px solid oklch(1 0 0 / 0.07);
+      transition: all .15s ease;
+    }
+    .icon-btn:hover { color: oklch(0.74 0.18 25); background: oklch(0.72 0.18 25 / 0.12); border-color: oklch(0.72 0.18 25 / 0.3); }
+
+    /* ---- fields ---- */
+    .field {
+      width: 100%; padding: 13px 16px; border-radius: 12px; font-size: 14px;
+      color: #fff; background: oklch(0.2 0.02 190);
+      border: 1.5px solid oklch(1 0 0 / 0.08); outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease;
+      font-family: inherit;
+    }
+    .field::placeholder { color: rgba(178,178,178,.32); }
+    .field:focus { border-color: oklch(0.66 0.18 162 / 0.7); box-shadow: 0 0 0 4px oklch(0.66 0.18 162 / 0.14); }
+
+    .field-select {
+      padding: 9px 14px; border-radius: 11px; font-size: 13px; font-weight: 500;
+      color: #fff; background: oklch(0.2 0.02 190); border: 1px solid oklch(1 0 0 / 0.08);
+      outline: none; cursor: pointer; font-family: inherit;
+    }
+    .field-select:focus { border-color: oklch(0.66 0.18 162 / 0.6); }
+
+    /* ---- nav items ---- */
+    .nav-item {
+      display: flex; align-items: center; gap: 11px; width: 100%;
+      padding: 11px 13px; border-radius: 11px; font-size: 14px; font-weight: 500;
+      color: rgba(178,178,178,.55); cursor: pointer; text-align: left;
+      background: transparent; border: 1px solid transparent;
+      transition: all .15s ease;
+    }
+    .nav-item:hover { color: #fff; background: oklch(0.22 0.02 190); }
+    .nav-item--active {
+      color: #fff; font-weight: 600;
+      background: linear-gradient(135deg, oklch(0.62 0.2 162 / 0.18), oklch(0.6 0.18 178 / 0.12));
+      border-color: oklch(0.66 0.18 162 / 0.3);
+    }
+
+    /* ---- segmented ---- */
+    .seg { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; background: oklch(0.2 0.02 190); border: 1px solid oklch(1 0 0 / 0.06); }
+    .seg-btn { padding: 7px 16px; border-radius: 9px; font-size: 13px; font-weight: 600; color: rgba(178,178,178,.5); cursor: pointer; background: transparent; border: none; transition: all .15s ease; }
+    .seg-btn:hover { color: #fff; }
+    .seg-btn--active { color: #fff; background: oklch(0.28 0.03 190); }
+
+    /* ---- dropzone ---- */
+    .dropzone {
+      border: 1.8px dashed; border-radius: 16px; padding: 34px 20px;
+      display: grid; place-items: center; cursor: pointer;
+      transition: all .18s ease; min-height: 168px;
+    }
+    .dropzone:hover { background: oklch(0.22 0.02 190 / 0.6) !important; }
+    .dropzone-static {
+      border: 1.5px dashed oklch(1 0 0 / 0.1); border-radius: 16px; padding: 24px 18px; min-height: 110px;
+      background: oklch(0.2 0.02 190 / 0.35);
+    }
+
+    /* ---- decorative ---- */
+    .orb { position: absolute; border-radius: 9999px; filter: blur(70px); opacity: 0.4; }
+    .float-card { animation: floaty 6s ease-in-out infinite; }
+    .float-card:nth-child(2) { animation-delay: 1.4s; }
+    .float-card:nth-child(3) { animation-delay: 2.6s; }
+    @keyframes floaty { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+
+    .eqbar { height: 30%; animation: eq 0.9s ease-in-out infinite; }
+    @keyframes eq { 0%,100% { height: 25%; } 50% { height: 100%; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .float-card, .eqbar { animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="src/constants.jsx"></script>
+  <script type="text/babel" src="src/mockService.jsx"></script>
+  <script type="text/babel" src="src/components.jsx"></script>
+  <script type="text/babel" src="src/layout.jsx"></script>
+  <script type="text/babel" src="src/pages-auth.jsx"></script>
+  <script type="text/babel" src="src/pages-dashboard.jsx"></script>
+  <script type="text/babel" src="src/pages-results.jsx"></script>
+  <script type="text/babel" src="src/pages-history.jsx"></script>
+  <script type="text/babel" src="src/app.jsx"></script>
+</body>
+</html>
