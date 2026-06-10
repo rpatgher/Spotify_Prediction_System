@@ -1,0 +1,51 @@
+name: Notebook Validation
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+jobs:
+  validate-notebook:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install notebook tooling
+        run: pip install nbformat==5.10.4
+
+      - name: Validate notebook and required files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import nbformat
+
+          notebook_path = Path("ml_model/Spotify_Success_Prediction.ipynb")
+          infra_path = Path("infra/Infra.pkt")
+
+          if not notebook_path.exists():
+              raise FileNotFoundError(f"Missing notebook: {notebook_path}")
+
+          if not infra_path.exists():
+              raise FileNotFoundError(f"Missing infrastructure file: {infra_path}")
+
+          with notebook_path.open("r", encoding="utf-8") as fh:
+              notebook = nbformat.read(fh, as_version=4)
+
+          if not notebook.cells:
+              raise ValueError("Notebook has no cells.")
+
+          code_cells = [cell for cell in notebook.cells if cell.get("cell_type") == "code"]
+          if not code_cells:
+              raise ValueError("Notebook has no code cells.")
+
+          print(f"Notebook validated: {notebook_path} ({len(notebook.cells)} cells)")
+          print(f"Infrastructure file validated: {infra_path}")
+          PY
