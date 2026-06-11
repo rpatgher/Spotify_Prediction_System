@@ -13,12 +13,12 @@ module.exports = defineConfig({
     trace: 'on-first-retry',
   },
 
-  // Serves the static app (no build step needed - plain HTML/Babel/CDN react).
+  // Serves the Vite dev server.
   webServer: {
-    command: 'python3 -m http.server 4173',
+    command: 'npm run dev -- --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
-    timeout: 10 * 1000,
+    timeout: 30 * 1000,
   },
 
   projects: [

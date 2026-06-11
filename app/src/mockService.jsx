@@ -1,3 +1,10 @@
+import {
+  STORAGE_KEYS,
+  DEFAULT_FEATURES,
+  DEFAULT_SUMMARY,
+  DEFAULT_RECOMMENDATIONS,
+} from "./constants.jsx";
+
 // ============================================================
 // mockAnalysisService — simulated ML + persistence layer
 // ------------------------------------------------------------
@@ -168,7 +175,7 @@ function findUserRole(name) {
   return user ? user.role : null;
 }
 
-const mockAnalysisService = {
+export const mockAnalysisService = {
   analyzeYouTubeLink,
   analyzeMp3File,
   getHistory,

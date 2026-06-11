@@ -74,7 +74,7 @@ test.describe('Sidebar navigation', () => {
     await page.getByRole('button', { name: 'Historial' }).first().click();
     await expect(page).toHaveURL(/#\/history$/);
 
-    await page.getByRole('button', { name: 'Analizar canción' }).click();
+    await page.getByRole('navigation').getByRole('button', { name: 'Analizar canción' }).click();
     await expect(page).toHaveURL(/#\/user$/);
   });
 

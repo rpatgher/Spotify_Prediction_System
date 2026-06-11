@@ -1,9 +1,12 @@
 // ============================================================
 // Dashboard pages — UserDashboard + ProducerDashboard
 // ============================================================
-const { useState: useStateD } = React;
+import React, { useState as useStateD } from "react";
+import { mockAnalysisService } from "./mockService.jsx";
+import { Icon, Card, InfoBlock, LoadingAnalysis } from "./components.jsx";
+import { PageHeader, YouTubeInput, FileUploadDropzone } from "./layout.jsx";
 
-function isValidYouTube(url) {
+export function isValidYouTube(url) {
   return /youtube\.com|youtu\.be/i.test(url.trim());
 }
 
@@ -22,7 +25,7 @@ function useRunAnalysis({ navigate, setLoading, onResult }) {
 }
 
 // ---- USER DASHBOARD --------------------------------------------------
-function UserDashboardPage({ navigate, setLoading, loading, onResult }) {
+export function UserDashboardPage({ navigate, setLoading, loading, onResult }) {
   const [url, setUrl] = useStateD("");
   const [error, setError] = useStateD("");
   const run = useRunAnalysis({ navigate, setLoading, onResult });
@@ -72,7 +75,7 @@ function UserDashboardPage({ navigate, setLoading, loading, onResult }) {
 }
 
 // ---- PRODUCER DASHBOARD ----------------------------------------------
-function ProducerDashboardPage({ navigate, setLoading, loading, onResult }) {
+export function ProducerDashboardPage({ navigate, setLoading, loading, onResult }) {
   const [file, setFile] = useStateD(null);
   const [fileError, setFileError] = useStateD("");
   const [url, setUrl] = useStateD("");
@@ -152,4 +155,4 @@ function ProducerDashboardPage({ navigate, setLoading, loading, onResult }) {
   );
 }
 
-Object.assign(window, { UserDashboardPage, ProducerDashboardPage, isValidYouTube });
+Object.assign(window, { isValidYouTube });

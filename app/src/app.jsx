@@ -1,7 +1,14 @@
 // ============================================================
 // App — hash router + simulated session guard
 // ============================================================
-const { useState: useStateApp, useEffect: useEffectApp } = React;
+import React, { useState as useStateApp, useEffect as useEffectApp } from "react";
+import { mockAnalysisService } from "./mockService.jsx";
+import { AppLayout } from "./layout.jsx";
+import { WelcomePage } from "./pages-welcome.jsx";
+import { LoginPage } from "./pages-auth.jsx";
+import { UserDashboardPage, ProducerDashboardPage } from "./pages-dashboard.jsx";
+import { ResultsPage } from "./pages-results.jsx";
+import { HistoryPage } from "./pages-history.jsx";
 
 const ROUTES = ["/welcome", "/login", "/user", "/producer", "/results", "/history"];
 
@@ -23,7 +30,7 @@ function useHashRoute() {
   return [route, navigate];
 }
 
-function App() {
+export default function App() {
   const [route, navigate] = useHashRoute();
   const [session, setSession] = useStateApp(() => mockAnalysisService.getSession());
   const [loading, setLoading] = useStateApp(false);
@@ -65,5 +72,3 @@ function App() {
     </AppLayout>
   );
 }
-
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);

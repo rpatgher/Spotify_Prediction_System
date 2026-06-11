@@ -1,9 +1,12 @@
 // ============================================================
 // LoginPage — split branding / simulated auth form
 // ============================================================
-const { useState: useStateA } = React;
+import React, { useState as useStateA } from "react";
+import { PROJECT_TAGLINE } from "./constants.jsx";
+import { mockAnalysisService } from "./mockService.jsx";
+import { Icon, Wordmark, GradientOrbs } from "./components.jsx";
 
-function LoginPage({ navigate, onLogin }) {
+export function LoginPage({ navigate, onLogin }) {
   const [mode, setMode] = useStateA("login"); // "login" | "register"
   const [name, setName] = useStateA("");
   const [password, setPassword] = useStateA("");
@@ -158,5 +161,3 @@ function RolePick({ active, onClick, icon, title, desc, hue }) {
     </button>
   );
 }
-
-Object.assign(window, { LoginPage });

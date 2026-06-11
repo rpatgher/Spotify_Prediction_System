@@ -1,12 +1,16 @@
 // ============================================================
 // HistoryPage — list of saved analyses with filter + sort
 // ============================================================
-const { useState: useStateH } = React;
+import React, { useState as useStateH } from "react";
+import { RATING_HUE } from "./constants.jsx";
+import { mockAnalysisService } from "./mockService.jsx";
+import { Icon, Card, SourceChip, EmptyState } from "./components.jsx";
+import { PageHeader } from "./layout.jsx";
 
 const RATING_ORDER = { A: 6, B: 5, C: 4, D: 3, E: 2, F: 1 };
 
 // ---- HistoryItem -----------------------------------------------------
-function HistoryItem({ item, onView, onDelete }) {
+export function HistoryItem({ item, onView, onDelete }) {
   const hue = RATING_HUE[item.rating] ?? 150;
   const dateLabel = new Date(item.createdAt).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
   return (
@@ -41,7 +45,7 @@ function HistoryItem({ item, onView, onDelete }) {
   );
 }
 
-function HistoryPage({ navigate, session }) {
+export function HistoryPage({ navigate, session }) {
   const [list, setList] = useStateH(mockAnalysisService.getHistory());
   const [filter, setFilter] = useStateH("all"); // all | youtube | mp3
   const [sort, setSort] = useStateH("recent"); // recent | rating
@@ -113,5 +117,3 @@ function HistoryPage({ navigate, session }) {
     </>
   );
 }
-
-Object.assign(window, { HistoryPage, HistoryItem });

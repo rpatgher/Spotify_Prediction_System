@@ -1,7 +1,13 @@
 // ============================================================
 // ResultsPage — simulated ML output
 // ============================================================
-function ResultsPage({ navigate, session }) {
+import React from "react";
+import { RATING_HUE, RATING_TEXT, RELEASE_DATE_NOTE } from "./constants.jsx";
+import { mockAnalysisService } from "./mockService.jsx";
+import { Icon, Card, SourceChip, FeatureCard, RecommendationCard, EmptyState } from "./components.jsx";
+import { PageHeader } from "./layout.jsx";
+
+export function ResultsPage({ navigate, session }) {
   const result = mockAnalysisService.getCurrentAnalysis();
 
   if (!result) {
@@ -136,5 +142,3 @@ function ResultsPage({ navigate, session }) {
     </>
   );
 }
-
-Object.assign(window, { ResultsPage });

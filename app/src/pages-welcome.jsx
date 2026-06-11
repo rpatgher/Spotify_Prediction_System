@@ -1,7 +1,11 @@
 // ============================================================
 // WelcomePage — landing screen shown before authentication
 // ============================================================
-function WelcomePage({ navigate }) {
+import React from "react";
+import { PROJECT_NAME, PROJECT_TAGLINE } from "./constants.jsx";
+import { Icon, Wordmark, GradientOrbs } from "./components.jsx";
+
+export function WelcomePage({ navigate }) {
   return (
     <div
       className="relative min-h-full grid place-items-center overflow-hidden p-6"
@@ -32,5 +36,3 @@ function WelcomePage({ navigate }) {
     </div>
   );
 }
-
-Object.assign(window, { WelcomePage });
