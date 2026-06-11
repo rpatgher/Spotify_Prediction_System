@@ -14,6 +14,7 @@ const STORAGE_KEYS = {
   session: "trackvision_session",
   current: "trackvision_current_analysis",
   history: "trackvision_history",
+  users: "trackvision_users",
 };
 
 // Rating letter -> short verdict copy

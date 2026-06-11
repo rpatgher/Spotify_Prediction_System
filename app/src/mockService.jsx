@@ -148,6 +148,26 @@ function clearSession() {
   localStorage.removeItem(STORAGE_KEYS.session);
 }
 
+// ---- registered users (simulated) -------------------------------------
+// Tiny local "directory" so login can recall the role chosen at registration
+// without asking again. BACKEND: replace with real user lookup by credentials.
+function getUsers() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.users)) || {};
+  } catch {
+    return {};
+  }
+}
+function registerUser({ name, role }) {
+  const users = getUsers();
+  users[name.trim().toLowerCase()] = { role };
+  localStorage.setItem(STORAGE_KEYS.users, JSON.stringify(users));
+}
+function findUserRole(name) {
+  const user = getUsers()[name.trim().toLowerCase()];
+  return user ? user.role : null;
+}
+
 const mockAnalysisService = {
   analyzeYouTubeLink,
   analyzeMp3File,
@@ -159,6 +179,8 @@ const mockAnalysisService = {
   getSession,
   setSession,
   clearSession,
+  registerUser,
+  findUserRole,
 };
 
 Object.assign(window, { mockAnalysisService });

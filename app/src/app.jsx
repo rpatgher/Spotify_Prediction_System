@@ -3,16 +3,16 @@
 // ============================================================
 const { useState: useStateApp, useEffect: useEffectApp } = React;
 
-const ROUTES = ["/login", "/user", "/producer", "/results", "/history"];
+const ROUTES = ["/welcome", "/login", "/user", "/producer", "/results", "/history"];
 
 function useHashRoute() {
   const read = () => {
     const h = window.location.hash.replace(/^#/, "");
     return ROUTES.includes(h) ? h : "";
   };
-  const [route, setRoute] = useStateApp(read() || "/login");
+  const [route, setRoute] = useStateApp(read() || "/welcome");
   useEffectApp(() => {
-    const on = () => setRoute(read() || "/login");
+    const on = () => setRoute(read() || "/welcome");
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
@@ -32,19 +32,23 @@ function App() {
   // ---- session guards -------------------------------------------------
   useEffectApp(() => {
     const authed = !!session;
-    if (!authed && route !== "/login") { navigate("/login"); return; }
-    if (authed && route === "/login") { navigate(session.role === "producer" ? "/producer" : "/user"); return; }
+    if (!authed) {
+      if (route !== "/login" && route !== "/welcome") navigate("/welcome");
+      return;
+    }
+    if (route === "/login" || route === "/welcome") { navigate(session.role === "producer" ? "/producer" : "/user"); return; }
     // keep roles on their own dashboard
-    if (authed && route === "/producer" && session.role !== "producer") navigate("/user");
-    if (authed && route === "/user" && session.role === "producer") navigate("/producer");
+    if (route === "/producer" && session.role !== "producer") navigate("/user");
+    if (route === "/user" && session.role === "producer") navigate("/producer");
   }, [route, session]);
 
   const handleLogin = (s) => { mockAnalysisService.setSession(s); setSession(s); };
   const handleLogout = () => { mockAnalysisService.clearSession(); setSession(null); navigate("/login"); };
 
-  // ---- login (no shell) ----------------------------------------------
-  if (!session || route === "/login") {
-    return <LoginPage navigate={navigate} onLogin={handleLogin} />;
+  // ---- welcome / login (no shell) -------------------------------------
+  if (!session) {
+    if (route === "/login") return <LoginPage navigate={navigate} onLogin={handleLogin} />;
+    return <WelcomePage navigate={navigate} />;
   }
 
   // ---- authed shell ---------------------------------------------------

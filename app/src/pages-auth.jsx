@@ -4,21 +4,30 @@
 const { useState: useStateA } = React;
 
 function LoginPage({ navigate, onLogin }) {
+  const [mode, setMode] = useStateA("login"); // "login" | "register"
   const [name, setName] = useStateA("");
   const [password, setPassword] = useStateA("");
   const [role, setRole] = useStateA("");
   const [errors, setErrors] = useStateA({});
 
+  const isRegister = mode === "register";
+
   const submit = () => {
     const e = {};
     if (!name.trim()) e.name = "Ingresa tu nombre o correo.";
     if (!password.trim()) e.password = "Ingresa tu contraseña.";
-    if (!role) e.role = "Selecciona un tipo de usuario.";
+    if (isRegister && !role) e.role = "Selecciona un tipo de usuario.";
     setErrors(e);
     if (Object.keys(e).length) return;
     // Simulated session — no backend validation.
-    onLogin({ name: name.trim(), role });
-    navigate(role === "producer" ? "/producer" : "/user");
+    let finalRole = role;
+    if (isRegister) {
+      mockAnalysisService.registerUser({ name: name.trim(), role });
+    } else {
+      finalRole = mockAnalysisService.findUserRole(name) || "user";
+    }
+    onLogin({ name: name.trim(), role: finalRole });
+    navigate(finalRole === "producer" ? "/producer" : "/user");
   };
 
   const floatingCards = [
@@ -76,8 +85,18 @@ function LoginPage({ navigate, onLogin }) {
       <div className="flex items-center justify-center p-6 sm:p-12" style={{ background: "oklch(0.145 0.015 190)" }}>
         <div className="w-full max-w-[400px]">
           <div className="lg:hidden mb-8"><Wordmark size={36} /></div>
-          <h2 className="font-display text-2xl font-bold text-white">Entrar a la plataforma</h2>
-          <p className="text-white/45 text-sm mt-1.5 mb-8">Inicia sesión para comenzar a analizar canciones. (Demo · sin validación real)</p>
+
+          <div className="seg mb-7">
+            <button className={"seg-btn " + (!isRegister ? "seg-btn--active" : "")} onClick={() => setMode("login")}>Iniciar sesión</button>
+            <button className={"seg-btn " + (isRegister ? "seg-btn--active" : "")} onClick={() => setMode("register")}>Registrarse</button>
+          </div>
+
+          <h2 className="font-display text-2xl font-bold text-white">{isRegister ? "Crear una cuenta" : "Entrar a la plataforma"}</h2>
+          <p className="text-white/45 text-sm mt-1.5 mb-8">
+            {isRegister
+              ? "Regístrate para comenzar a analizar canciones. (Demo · sin validación real)"
+              : "Inicia sesión para comenzar a analizar canciones. (Demo · sin validación real)"}
+          </p>
 
           <div className="flex flex-col gap-5">
             <Labeled label="Nombre o correo" error={errors.name}>
@@ -87,17 +106,19 @@ function LoginPage({ navigate, onLogin }) {
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="field" />
             </Labeled>
 
-            <div>
-              <div className="text-[13px] font-medium text-white/65 mb-2">Tipo de usuario</div>
-              <div className="grid grid-cols-2 gap-3">
-                <RolePick active={role === "user"} onClick={() => setRole("user")} icon="analyze" title="Usuario normal" desc="Analiza desde YouTube" hue={162} />
-                <RolePick active={role === "producer"} onClick={() => setRole("producer")} icon="upload" title="Productor" desc="MP3 + YouTube" hue={178} />
+            {isRegister && (
+              <div>
+                <div className="text-[13px] font-medium text-white/65 mb-2">Tipo de usuario</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <RolePick active={role === "user"} onClick={() => setRole("user")} icon="analyze" title="Usuario normal" desc="Analiza desde YouTube" hue={162} />
+                  <RolePick active={role === "producer"} onClick={() => setRole("producer")} icon="upload" title="Productor" desc="MP3 + YouTube" hue={178} />
+                </div>
+                {errors.role && <div className="text-[13px] mt-2" style={{ color: "oklch(0.72 0.18 25)" }}>{errors.role}</div>}
               </div>
-              {errors.role && <div className="text-[13px] mt-2" style={{ color: "oklch(0.72 0.18 25)" }}>{errors.role}</div>}
-            </div>
+            )}
 
             <button onClick={submit} className="btn-primary justify-center mt-1 text-[15px] py-3.5">
-              Entrar a la plataforma <Icon name="arrow" className="w-4 h-4" />
+              {isRegister ? "Crear cuenta" : "Entrar a la plataforma"} <Icon name="arrow" className="w-4 h-4" />
             </button>
             <div className="text-center text-[12px] text-white/30">
               Sesión simulada guardada localmente · No se envían datos a ningún servidor.
