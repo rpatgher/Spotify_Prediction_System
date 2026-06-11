@@ -1,0 +1,16 @@
+{
+  "name": "trackwise-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TrackWise frontend (static React app) - Playwright test suite",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:unit": "playwright test tests/unit",
+    "test:integration": "playwright test tests/integration",
+    "test:report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}
