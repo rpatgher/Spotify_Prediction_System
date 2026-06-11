@@ -1,11 +1,11 @@
 // ============================================================
-// TrackVision AI — Global constants
+// TrackWise — Global constants
 // Centralized so the brand name / mock data can be swapped easily
 // when the real backend is connected.
 // ============================================================
 
 // Project name lives in ONE place — change here to rebrand everywhere.
-const PROJECT_NAME = "TrackVision AI";
+const PROJECT_NAME = "TrackWise";
 const PROJECT_TAGLINE =
   "Predicción musical basada en datos de Spotify, YouTube y Machine Learning.";
 

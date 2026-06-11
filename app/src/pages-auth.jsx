@@ -100,7 +100,7 @@ function LoginPage({ navigate, onLogin }) {
 
           <div className="flex flex-col gap-5">
             <Labeled label="Nombre o correo" error={errors.name}>
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="usuario@trackvision.ai" className="field" />
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="usuario@trackwise.ai" className="field" />
             </Labeled>
             <Labeled label="Contraseña" error={errors.password}>
               <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="field" />
