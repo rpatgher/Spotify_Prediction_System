@@ -83,6 +83,7 @@ async def predict_mp3(
 @router.get(
     "",
     response_model=list[PredictionSummary],
+    response_model_by_alias=True,
     summary="List the current user's prediction history",
 )
 def list_history(
@@ -101,6 +102,7 @@ def list_history(
 @router.get(
     "/{prediction_id}",
     response_model=PredictionDetail,
+    response_model_by_alias=True,
     summary="Get the full detail of a prediction",
 )
 def get_detail(
