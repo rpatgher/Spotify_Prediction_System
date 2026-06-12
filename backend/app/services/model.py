@@ -45,11 +45,11 @@ _MODEL_L2_PATH = Path(
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _score_to_rating(score: int) -> str:
-    if score >= 90: return "A"
-    if score >= 80: return "B"
-    if score >= 65: return "C"
-    if score >= 50: return "D"
-    if score >= 35: return "E"
+    if score >= 60: return "A"
+    if score >= 50: return "B"
+    if score >= 40: return "C"
+    if score >= 30: return "D"
+    if score >= 18: return "E"
     return "F"
 
 
