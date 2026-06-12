@@ -91,3 +91,9 @@ def test_mp3_upload_requires_productor_role(client):
             app.dependency_overrides[get_current_user_roles] = original
         else:
             app.dependency_overrides.pop(get_current_user_roles, None)
+
+
+def test_metrics_endpoint(client):
+    r = client.get("/metrics")
+    assert r.status_code == 200
+    assert b"inference_requests_total" in r.content

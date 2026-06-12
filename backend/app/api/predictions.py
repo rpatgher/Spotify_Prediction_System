@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.core.metrics import input_validation_errors
 from app.db.session import get_db
 from app.schemas.prediction import (
     PredictionCreate,
@@ -58,6 +59,7 @@ async def predict_mp3(
 ) -> PredictionCreated:
     filename = file.filename or "audio.mp3"
     if Path(filename).suffix.lower() not in _AUDIO_EXTS:
+        input_validation_errors.inc()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Sube un archivo de audio (.mp3, .wav, .flac, .m4a, .ogg, .aac).",

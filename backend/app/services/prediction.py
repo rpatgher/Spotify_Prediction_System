@@ -4,6 +4,7 @@ from urllib.parse import unquote, urlparse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.metrics import inference_latency, inference_total
 from app.models.prediction import Prediction
 from app.services import audio_features, model
 
@@ -45,15 +46,22 @@ def _persist(db: Session, result: dict, **base) -> Prediction:
 
 def create_prediction(db: Session, *, user_id: str, source: str, url: str) -> Prediction:
     """Run the full pipeline and persist the result for `user_id`."""
-    flat_pool = audio_features.extract_features(url, source)
-    result = model.predict(flat_pool)
-    return _persist(
-        db, result,
-        user_id=user_id,
-        source=source,
-        input_name=_input_name(url, source),
-        input_url=url,
-    )
+    try:
+        with inference_latency.time():
+            flat_pool = audio_features.extract_features(url, source)
+            result = model.predict(flat_pool)
+            prediction = _persist(
+                db, result,
+                user_id=user_id,
+                source=source,
+                input_name=_input_name(url, source),
+                input_url=url,
+            )
+        inference_total.labels(result_class=result["rating"], status="success").inc()
+        return prediction
+    except Exception:
+        inference_total.labels(result_class="unknown", status="error").inc()
+        raise
 
 
 def get_prediction(db: Session, *, user_id: str, prediction_id) -> Prediction | None:
@@ -85,15 +93,22 @@ def create_prediction_from_file(
     db: Session, *, user_id: str, file_path: str, filename: str
 ) -> Prediction:
     """Run the full pipeline for an uploaded MP3 file and persist the result."""
-    flat_pool = audio_features.extract_features_from_path(file_path, filename)
-    result = model.predict(flat_pool)
-    return _persist(
-        db, result,
-        user_id=user_id,
-        source="mp3",
-        input_name=filename,
-        input_url=filename,
-    )
+    try:
+        with inference_latency.time():
+            flat_pool = audio_features.extract_features_from_path(file_path, filename)
+            result = model.predict(flat_pool)
+            prediction = _persist(
+                db, result,
+                user_id=user_id,
+                source="mp3",
+                input_name=filename,
+                input_url=filename,
+            )
+        inference_total.labels(result_class=result["rating"], status="success").inc()
+        return prediction
+    except Exception:
+        inference_total.labels(result_class="unknown", status="error").inc()
+        raise
 
 
 def delete_prediction(db: Session, *, user_id: str, prediction_id) -> bool:

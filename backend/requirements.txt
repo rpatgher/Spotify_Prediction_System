@@ -19,6 +19,8 @@ pydantic-settings==2.6.1
 pyjwt[crypto]==2.10.1
 python-multipart==0.0.17
 
+prometheus-fastapi-instrumentator==7.0.0
+
 # dev / tests
 pytest==8.3.4
 httpx==0.28.1
