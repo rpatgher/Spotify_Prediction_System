@@ -20,7 +20,8 @@ from app.services import prediction as prediction_service
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
-_AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac"}
+MAX_UPLOAD_MB = 15
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 
 
 def _create(source: str, body: PredictionCreate, db: Session, user_id: str) -> PredictionCreated:
@@ -41,38 +42,56 @@ def predict_youtube(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> PredictionCreated:
-    # Returns only the id; the client then GETs /predictions/{id} for details.
-    return _create("youtube", body, db, user_id)
+    # PredictionCreate validates that the URL is a YouTube URL (422 if not).
+    # ValueError from audio pipeline (video not found, too long) → 400.
+    try:
+        return _create("youtube", body, db, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.post(
     "/mp3",
     response_model=PredictionCreated,
     status_code=status.HTTP_201_CREATED,
-    summary="Predict from an uploaded audio file",
-    dependencies=[Depends(require_producer)],  # subir archivos: solo rol `productor`
+    summary="Predict from an uploaded MP3 file",
+    dependencies=[Depends(require_producer)],
 )
 async def predict_mp3(
-    file: UploadFile = File(...),
+    file: UploadFile = File(..., description="Archivo MP3 a analizar (máx. 15 MB)"),
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> PredictionCreated:
     filename = file.filename or "audio.mp3"
-    if Path(filename).suffix.lower() not in _AUDIO_EXTS:
+
+    # Extension — only .mp3 accepted
+    if Path(filename).suffix.lower() != ".mp3":
         input_validation_errors.inc()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Sube un archivo de audio (.mp3, .wav, .flac, .m4a, .ogg, .aac).",
+            detail="Solo se permiten archivos .mp3.",
         )
 
-    suffix = Path(filename).suffix or ".mp3"
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    try:
-        tmp.write(await file.read())
-        tmp.close()
-        prediction = prediction_service.create_prediction_from_file(
-            db, user_id=user_id, file_path=tmp.name, filename=filename,
+    # Read fully so we can check size before touching the filesystem
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        input_validation_errors.inc()
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"El archivo supera el límite de {MAX_UPLOAD_MB} MB "
+                   f"({len(content) / 1024 / 1024:.1f} MB recibidos).",
         )
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    try:
+        tmp.write(content)
+        tmp.close()
+        try:
+            prediction = prediction_service.create_prediction_from_file(
+                db, user_id=user_id, file_path=tmp.name, filename=filename,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     finally:
         try:
             os.unlink(tmp.name)
