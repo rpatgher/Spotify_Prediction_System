@@ -1,7 +1,10 @@
-"""Prediction endpoints (all require a valid Keycloak token)."""
+"""Prediction endpoints (all require a valid bearer token / X-Debug-User header)."""
+import os
+import tempfile
 import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -15,6 +18,8 @@ from app.security.auth import get_current_user_id
 from app.services import prediction as prediction_service
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
+
+_AUDIO_EXTS = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac"}
 
 
 def _create(source: str, body: PredictionCreate, db: Session, user_id: str) -> PredictionCreated:
@@ -43,14 +48,35 @@ def predict_youtube(
     "/mp3",
     response_model=PredictionCreated,
     status_code=status.HTTP_201_CREATED,
-    summary="Predict from an mp3 file URL",
+    summary="Predict from an uploaded audio file",
 )
-def predict_mp3(
-    body: PredictionCreate,
+async def predict_mp3(
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user_id: str = Depends(get_current_user_id),
 ) -> PredictionCreated:
-    return _create("mp3", body, db, user_id)
+    filename = file.filename or "audio.mp3"
+    if Path(filename).suffix.lower() not in _AUDIO_EXTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Sube un archivo de audio (.mp3, .wav, .flac, .m4a, .ogg, .aac).",
+        )
+
+    suffix = Path(filename).suffix or ".mp3"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        tmp.write(await file.read())
+        tmp.close()
+        prediction = prediction_service.create_prediction_from_file(
+            db, user_id=user_id, file_path=tmp.name, filename=filename,
+        )
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+    return PredictionCreated(id=prediction.id)
 
 
 @router.get(
