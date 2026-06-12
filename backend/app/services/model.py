@@ -1,91 +1,199 @@
-"""ML model inference — PLACEHOLDER.
+"""ML model inference — two cascaded layers.
 
-The trained model (XGBoost, see ml_model/) is not served yet. This module
-returns a hard-coded result with the SAME shape the real model output will be
-mapped to, so the API and frontend can be built and tested end to end.
+Layer 1 (model_layer1_success.pkl): a RandomForestRegressor that predicts a
+0–100 `success_score` from 50 audio/metadata features.
 
-When the model is ready, replace `predict` so it loads the model + scaler +
-encoders and runs real inference on the extracted audio features.
+Layer 2 (model_layer2_youtube.pkl): three RandomForestRegressors (Views, Likes,
+Comments) that predict YouTube engagement from 50 audio/metadata features PLUS
+the layer-1 score appended last as `predicted_success` (51 inputs total). The
+targets were trained on log1p, so the raw output is reverted with expm1 to real
+counts.
+
+Bundles:
+  layer 1: {"model": RandomForestRegressor, "features": [50 cols]}
+  layer 2: {"models": {"Views","Likes","Comments"}, "features": [50 cols],
+            "uses_predicted_success": True}
+
+Both .pkl files are gitignored (too large for GitHub); they live in ml_model/
+for local dev and are placed manually on the deployed server. When a model file
+is missing/unloadable (e.g. CI), the corresponding output falls back: layer 1 to
+a deterministic heuristic score, layer 2 to None.
+
+`predict` takes the raw flat Essentia pool and does the per-layer feature
+selection via `audio_features.select_model_features`.
 """
+import hashlib
+import logging
+import os
+import random
 from datetime import date, timedelta
+from functools import lru_cache
+from pathlib import Path
 
-# Marketing-style display features the frontend's results screen renders.
-# Kept aligned with app/src/constants.jsx DEFAULT_FEATURES.
-_DEFAULT_FEATURES = [
-    {
-        "name": "Reproducciones estimadas",
-        "value": "120K - 250K",
-        "recommendation": "Aumentar expectativa con campaña previa en redes sociales.",
-    },
-    {
-        "name": "Vistas potenciales en YouTube",
-        "value": "80K - 180K",
-        "recommendation": "Crear teaser visual y usar miniatura llamativa.",
-    },
-    {
-        "name": "Engagement esperado",
-        "value": "7.8%",
-        "recommendation": "Impulsar comentarios, guardados y compartidos durante los primeros días.",
-    },
-]
+from app.services import audio_features as af
 
-_DEFAULT_RECOMMENDATIONS = [
-    {
-        "title": "Lanzar con campaña previa",
-        "description": "Publica adelantos entre 7 y 10 días antes del lanzamiento.",
-    },
-    {
-        "title": "Optimizar contenido visual",
-        "description": "Utiliza una portada y miniatura que comuniquen claramente el mood de la canción.",
-    },
-    {
-        "title": "Impulsar interacción inicial",
-        "description": "Durante las primeras 48 horas, enfócate en comentarios, compartidos y guardados.",
-    },
-]
-
-_DEFAULT_SUMMARY = (
-    "De acuerdo con la información procesada, la canción tiene un potencial "
-    "competitivo dentro de su segmento. Las métricas muestran una buena "
-    "posibilidad de alcance si se acompaña de una estrategia de lanzamiento "
-    "constante, contenido visual atractivo y promoción previa."
+# Same root-relative location audio_features uses: <root>/ml_model/
+_ML_MODEL_DIR = Path(__file__).parents[3] / "ml_model"
+_MODEL_L1_PATH = Path(
+    os.getenv("MODEL_LAYER1_PATH", str(_ML_MODEL_DIR / "model_layer1_success.pkl"))
+)
+_MODEL_L2_PATH = Path(
+    os.getenv("MODEL_LAYER2_PATH", str(_ML_MODEL_DIR / "model_layer2_youtube.pkl"))
 )
 
 
-def _next_friday(min_days_ahead: int = 21) -> str:
-    """A Friday at least `min_days_ahead` days from today (es-ES, capitalized)."""
-    d = date.today() + timedelta(days=min_days_ahead)
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _score_to_rating(score: int) -> str:
+    if score >= 90: return "A"
+    if score >= 80: return "B"
+    if score >= 65: return "C"
+    if score >= 50: return "D"
+    if score >= 35: return "E"
+    return "F"
+
+
+def _next_friday(min_days: int = 14, max_days: int = 45) -> str:
+    d = date.today() + timedelta(days=random.randint(min_days, max_days))
     while d.weekday() != 4:  # 4 = Friday
         d += timedelta(days=1)
     meses = [
         "enero", "febrero", "marzo", "abril", "mayo", "junio",
         "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
     ]
-    dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-    return f"{dias[d.weekday()]}, {d.day} de {meses[d.month - 1]} de {d.year}"
+    return f"Viernes, {d.day} de {meses[d.month - 1]} de {d.year}"
 
 
-def predict(features: dict[str, float]) -> dict:
-    """Run inference on audio features and return a result payload.
+# ── model loading ───────────────────────────────────────────────────────────────
 
-    Args:
-        features: audio-feature mapping from `audio_features.extract_features`.
+@lru_cache(maxsize=1)
+def _load_layer1():
+    """Load the layer-1 bundle once. Returns (model, feature_order) or None."""
+    if not _MODEL_L1_PATH.exists():
+        logging.warning(
+            "Modelo capa-1 no encontrado en '%s'. Usando score heurístico de "
+            "fallback. Coloca el .pkl ahí (o define MODEL_LAYER1_PATH) para "
+            "inferencia real.",
+            _MODEL_L1_PATH,
+        )
+        return None
+    try:
+        import joblib
 
-    Returns:
-        dict with: rating ("A".."F"), score (0-100), best_release_date,
-        features (display list), summary, recommendations.
+        bundle = joblib.load(_MODEL_L1_PATH)
+        logging.info("Modelo capa-1 cargado (%d features).", len(bundle["features"]))
+        return bundle["model"], bundle["features"]
+    except Exception as exc:  # missing sklearn/joblib, pickle mismatch, etc.
+        logging.warning(
+            "No se pudo cargar el modelo capa-1 (%s: %s). Usando score "
+            "heurístico de fallback.",
+            type(exc).__name__, exc,
+        )
+        return None
 
-    NOTE: this is a hard-coded stub. `features` is intentionally ignored for
-    now. Replace the body with real XGBoost inference when the model is served.
+
+@lru_cache(maxsize=1)
+def _load_layer2():
+    """Load the layer-2 bundle once. Returns (models_dict, base_features) or None."""
+    if not _MODEL_L2_PATH.exists():
+        logging.warning(
+            "Modelo capa-2 no encontrado en '%s'. Las predicciones de YouTube "
+            "quedarán en null. Coloca el .pkl ahí (o define MODEL_LAYER2_PATH).",
+            _MODEL_L2_PATH,
+        )
+        return None
+    try:
+        import joblib
+
+        bundle = joblib.load(_MODEL_L2_PATH)
+        logging.info(
+            "Modelo capa-2 cargado (%s, %d features).",
+            ", ".join(bundle["models"]), len(bundle["features"]),
+        )
+        return bundle["models"], bundle["features"]
+    except Exception as exc:
+        logging.warning(
+            "No se pudo cargar el modelo capa-2 (%s: %s). YouTube → null.",
+            type(exc).__name__, exc,
+        )
+        return None
+
+
+# ── inference ───────────────────────────────────────────────────────────────────
+
+def _heuristic_score(features: dict) -> float:
+    """Deterministic 35–94 score used only when the layer-1 model is unavailable."""
+    seed = repr(sorted(features.items())).encode()
+    h = int(hashlib.md5(seed).hexdigest(), 16)
+    return float(35 + h % 60)
+
+
+def _layer1_score(flat_pool: dict) -> float:
+    """Raw layer-1 success score (0–100, continuous). Feeds both the UI and layer 2."""
+    spec = af.load_feature_spec(str(af._CAPA1_FEATURES_PATH))
+    feats = af.select_model_features(flat_pool, spec)
+
+    bundle = _load_layer1()
+    if bundle is None:
+        return _heuristic_score(feats)
+
+    import pandas as pd
+
+    model, order = bundle
+    row = {col: float(feats.get(col, 0.0)) for col in order}
+    X = pd.DataFrame([row], columns=order)  # named cols → correct order
+    raw = float(model.predict(X)[0])
+    return max(0.0, min(100.0, raw))
+
+
+def _layer2_youtube(flat_pool: dict, predicted_success: float) -> dict:
+    """Predict YouTube Views/Likes/Comments. Returns ints, or None if unavailable."""
+    bundle = _load_layer2()
+    if bundle is None:
+        return {"views": None, "likes": None, "comments": None}
+
+    import numpy as np
+    import pandas as pd
+
+    models, base_features = bundle
+    spec = af.load_feature_spec(str(af._CAPA2_FEATURES_PATH))
+    feats = af.select_model_features(flat_pool, spec)
+
+    # Column order = the 50 base features + predicted_success appended last.
+    order = list(base_features) + ["predicted_success"]
+    row = {col: float(feats.get(col, 0.0)) for col in base_features}
+    row["predicted_success"] = float(predicted_success)
+    X = pd.DataFrame([row], columns=order)
+
+    out: dict[str, int] = {}
+    for label, mdl in models.items():  # "Views", "Likes", "Comments"
+        raw = float(mdl.predict(X)[0])           # log1p scale
+        out[label.lower()] = int(round(max(0.0, float(np.expm1(raw)))))  # → real count
+
+    return {"views": out["views"], "likes": out["likes"], "comments": out["comments"]}
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def predict(flat_pool: dict) -> dict:
+    """Run both layers on a raw Essentia pool and return the full result payload.
+
+    Layer 1 → success score/rating. Layer 2 → expected YouTube engagement.
+    `features`/`summary`/`recommendations` stay empty until the UI uses the
+    new YouTube outputs for charts.
     """
-    # --- HARD-CODED PLACEHOLDER ---
-    score = 82
-    rating = "B"
+    raw_score = _layer1_score(flat_pool)
+    score = int(round(raw_score))
+    youtube = _layer2_youtube(flat_pool, raw_score)
+
     return {
-        "rating": rating,
+        "rating": _score_to_rating(score),
         "score": score,
         "best_release_date": _next_friday(),
-        "features": _DEFAULT_FEATURES,
-        "summary": _DEFAULT_SUMMARY,
-        "recommendations": _DEFAULT_RECOMMENDATIONS,
+        "features": [],
+        "summary": "",
+        "recommendations": [],
+        "expected_views": youtube["views"],
+        "expected_likes": youtube["likes"],
+        "expected_comments": youtube["comments"],
     }

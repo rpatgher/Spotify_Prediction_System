@@ -1,6 +1,7 @@
 """FastAPI application entrypoint."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api import health, predictions
 from app.core.config import settings
@@ -20,6 +21,9 @@ app.include_router(health.router)
 
 # Authenticated API.
 app.include_router(predictions.router, prefix=settings.API_PREFIX)
+
+
+Instrumentator().instrument(app).expose(app, include_in_schema=False)
 
 
 @app.get("/")

@@ -4,6 +4,7 @@ from urllib.parse import unquote, urlparse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.metrics import inference_latency, inference_total
 from app.models.prediction import Prediction
 from app.services import audio_features, model
 
@@ -23,27 +24,44 @@ def _input_name(url: str, source: str) -> str:
     return _SOURCE_LABELS.get(source, "Análisis")
 
 
-def create_prediction(db: Session, *, user_id: str, source: str, url: str) -> Prediction:
-    """Run the full pipeline and persist the result for `user_id`."""
-    features = audio_features.extract_features(url, source)  # SEAM (stubbed)
-    result = model.predict(features)  # PLACEHOLDER
-
+def _persist(db: Session, result: dict, **base) -> Prediction:
+    """Build a Prediction row from a model result + base columns, and persist it."""
     prediction = Prediction(
-        user_id=user_id,
-        source=source,
-        input_name=_input_name(url, source),
-        input_url=url,
         rating=result["rating"],
         score=result["score"],
         best_release_date=result["best_release_date"],
         summary=result["summary"],
         features=result["features"],
         recommendations=result["recommendations"],
+        expected_views=result["expected_views"],
+        expected_likes=result["expected_likes"],
+        expected_comments=result["expected_comments"],
+        **base,
     )
     db.add(prediction)
     db.commit()
     db.refresh(prediction)
     return prediction
+
+
+def create_prediction(db: Session, *, user_id: str, source: str, url: str) -> Prediction:
+    """Run the full pipeline and persist the result for `user_id`."""
+    try:
+        with inference_latency.time():
+            flat_pool = audio_features.extract_features(url, source)
+            result = model.predict(flat_pool)
+            prediction = _persist(
+                db, result,
+                user_id=user_id,
+                source=source,
+                input_name=_input_name(url, source),
+                input_url=url,
+            )
+        inference_total.labels(result_class=result["rating"], status="success").inc()
+        return prediction
+    except Exception:
+        inference_total.labels(result_class="unknown", status="error").inc()
+        raise
 
 
 def get_prediction(db: Session, *, user_id: str, prediction_id) -> Prediction | None:
@@ -69,6 +87,28 @@ def list_predictions(
         stmt = stmt.where(Prediction.source == source)
     stmt = stmt.order_by(Prediction.created_at.desc()).limit(limit).offset(offset)
     return list(db.execute(stmt).scalars().all())
+
+
+def create_prediction_from_file(
+    db: Session, *, user_id: str, file_path: str, filename: str
+) -> Prediction:
+    """Run the full pipeline for an uploaded MP3 file and persist the result."""
+    try:
+        with inference_latency.time():
+            flat_pool = audio_features.extract_features_from_path(file_path, filename)
+            result = model.predict(flat_pool)
+            prediction = _persist(
+                db, result,
+                user_id=user_id,
+                source="mp3",
+                input_name=filename,
+                input_url=filename,
+            )
+        inference_total.labels(result_class=result["rating"], status="success").inc()
+        return prediction
+    except Exception:
+        inference_total.labels(result_class="unknown", status="error").inc()
+        raise
 
 
 def delete_prediction(db: Session, *, user_id: str, prediction_id) -> bool:

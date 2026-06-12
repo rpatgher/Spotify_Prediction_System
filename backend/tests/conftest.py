@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.security.auth import get_current_user_id
+from app.security.auth import get_current_user_id, get_current_user_roles
 
 TEST_USER = "test-user-123"
 
@@ -36,6 +36,7 @@ def client():
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user_id] = lambda: TEST_USER
+    app.dependency_overrides[get_current_user_roles] = lambda: {"usuario", "productor"}
 
     with TestClient(app) as c:
         yield c

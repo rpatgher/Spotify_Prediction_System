@@ -1,10 +1,11 @@
 // ============================================================
 // Layout shell + form input components
 // ============================================================
-const { useState: useStateL, useRef: useRefL, useEffect: useEffectL } = React;
+import React, { useState as useStateL, useRef as useRefL } from "react";
+import { Icon, Wordmark } from "./components.jsx";
 
 // ---- Sidebar ---------------------------------------------------------
-function Sidebar({ role, route, navigate, onLogout, mobileOpen, setMobileOpen }) {
+export function Sidebar({ role, route, navigate, onLogout, mobileOpen, setMobileOpen }) {
   // Producer & user share the same menu; only the first label differs.
   const items = [
     { key: role === "producer" ? "producer" : "user", label: role === "producer" ? "Analizar producción" : "Analizar canción", icon: "analyze" },
@@ -61,7 +62,7 @@ function Sidebar({ role, route, navigate, onLogout, mobileOpen, setMobileOpen })
 }
 
 // ---- Navbar (top bar inside content) ---------------------------------
-function Navbar({ session, onMenu, navigate }) {
+export function Navbar({ session, onMenu, navigate }) {
   const initials = (session?.name || "U").trim().slice(0, 2).toUpperCase();
   return (
     <header className="flex items-center justify-between gap-4 mb-1">
@@ -89,7 +90,7 @@ function Navbar({ session, onMenu, navigate }) {
 }
 
 // ---- AppLayout (sidebar + scrollable content) ------------------------
-function AppLayout({ session, route, navigate, onLogout, children }) {
+export function AppLayout({ session, route, navigate, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useStateL(false);
   return (
     <div className="flex h-full w-full overflow-hidden">
@@ -105,7 +106,7 @@ function AppLayout({ session, route, navigate, onLogout, children }) {
 }
 
 // ---- Page header (title + subtitle) ----------------------------------
-function PageHeader({ title, subtitle, right }) {
+export function PageHeader({ title, subtitle, right }) {
   return (
     <div className="flex items-start justify-between gap-6 flex-wrap">
       <div className="max-w-2xl">
@@ -119,7 +120,7 @@ function PageHeader({ title, subtitle, right }) {
 
 // ---- YouTubeInput ----------------------------------------------------
 // `large` => roomy, stacked paste area (used on the Producer panel).
-function YouTubeInput({ value, onChange, onSubmit, placeholder, buttonLabel = "Analizar canción", error, large = false }) {
+export function YouTubeInput({ value, onChange, onSubmit, placeholder, buttonLabel = "Analizar canción", error, large = false }) {
   if (large) {
     return (
       <div className="flex flex-col gap-3">
@@ -170,7 +171,7 @@ function YouTubeInput({ value, onChange, onSubmit, placeholder, buttonLabel = "A
 }
 
 // ---- FileUploadDropzone ----------------------------------------------
-function FileUploadDropzone({ file, setFile, error, setError }) {
+export function FileUploadDropzone({ file, setFile, error, setError }) {
   const inputRef = useRefL(null);
   const [drag, setDrag] = useStateL(false);
 
@@ -217,5 +218,3 @@ function FileUploadDropzone({ file, setFile, error, setError }) {
     </div>
   );
 }
-
-Object.assign(window, { Sidebar, Navbar, AppLayout, PageHeader, YouTubeInput, FileUploadDropzone });

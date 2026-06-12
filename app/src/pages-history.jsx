@@ -1,12 +1,23 @@
 // ============================================================
 // HistoryPage — list of saved analyses with filter + sort
+// ------------------------------------------------------------
+// NOTA: el historial ahora se carga desde el API real
+// (GET /api/predictions). El mock de localStorage (mockService
+// getHistory/saveToHistory) ya no se usa aquí para usuarios
+// reales autenticados; se conserva en mockService por si otros
+// flujos demo lo necesitan.
 // ============================================================
-const { useState: useStateH } = React;
+import React, { useState as useStateH, useEffect } from "react";
+import { RATING_HUE } from "./constants.jsx";
+import { mockAnalysisService, withDummyFiller } from "./mockService.jsx";
+import { apiService } from "./apiService.jsx";
+import { Icon, Card, SourceChip, EmptyState } from "./components.jsx";
+import { PageHeader } from "./layout.jsx";
 
 const RATING_ORDER = { A: 6, B: 5, C: 4, D: 3, E: 2, F: 1 };
 
 // ---- HistoryItem -----------------------------------------------------
-function HistoryItem({ item, onView, onDelete }) {
+export function HistoryItem({ item, onView, onDelete }) {
   const hue = RATING_HUE[item.rating] ?? 150;
   const dateLabel = new Date(item.createdAt).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
   return (
@@ -41,18 +52,57 @@ function HistoryItem({ item, onView, onDelete }) {
   );
 }
 
-function HistoryPage({ navigate, session }) {
-  const [list, setList] = useStateH(mockAnalysisService.getHistory());
+export function HistoryPage({ navigate, session }) {
+  // API real — estados de carga
+  const [list, setList] = useStateH([]);
+  const [loading, setLoading] = useStateH(true);
+  const [error, setError] = useStateH(null);
+
   const [filter, setFilter] = useStateH("all"); // all | youtube | mp3
   const [sort, setSort] = useStateH("recent"); // recent | rating
 
-  const view = (item) => {
-    mockAnalysisService.setCurrentAnalysis(item);
-    navigate("/results");
+  // Carga inicial y refresco
+  const loadHistory = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Filtramos por source en cliente para mantener el control local de UI;
+      // el API acepta ?source= pero preferimos cargar todo y filtrar aquí.
+      const data = await apiService.getHistory({ limit: 200 });
+      setList(data);
+    } catch (err) {
+      setError(err.message || "Error al cargar el historial.");
+    } finally {
+      setLoading(false);
+    }
   };
-  const remove = (id) => {
-    mockAnalysisService.deleteFromHistory(id);
-    setList(mockAnalysisService.getHistory());
+
+  useEffect(() => { loadHistory(); }, []);
+
+  // Ver detalle: traer PredictionDetail completo, rellenar dummy, navegar.
+  const view = async (item) => {
+    try {
+      const detail = await apiService.getAnalysis(item.id);
+      // withDummyFiller rellena features/summary/recommendations si el backend
+      // aún los devuelve vacíos (temporal hasta Layer 2 completo).
+      mockAnalysisService.setCurrentAnalysis(withDummyFiller(detail));
+      navigate("/results");
+    } catch (err) {
+      // Fallback: usar el summary que ya tenemos del listado + filler
+      mockAnalysisService.setCurrentAnalysis(withDummyFiller(item));
+      navigate("/results");
+    }
+  };
+
+  // Eliminar: llama al API y refresca la lista.
+  const remove = async (id) => {
+    try {
+      await apiService.deleteAnalysis(id);
+      setList((prev) => prev.filter((r) => r.id !== id));
+    } catch (err) {
+      // Mostrar error inline sin perder la lista
+      setError(err.message || "No se pudo eliminar el análisis.");
+    }
   };
 
   let shown = list.filter((r) => filter === "all" || r.source === filter);
@@ -75,7 +125,21 @@ function HistoryPage({ navigate, session }) {
         subtitle="Consulta las canciones, links o archivos que analizaste anteriormente."
       />
 
-      {list.length === 0 ? (
+      {/* Estado: cargando */}
+      {loading && (
+        <div className="text-center text-white/40 text-sm py-10">Cargando historial…</div>
+      )}
+
+      {/* Estado: error */}
+      {!loading && error && (
+        <div className="text-center text-red-400 text-sm py-10">
+          {error}
+          <button onClick={loadHistory} className="ml-3 underline text-white/60">Reintentar</button>
+        </div>
+      )}
+
+      {/* Estado: vacío */}
+      {!loading && !error && list.length === 0 && (
         <EmptyState
           icon="history"
           title="Aún no tienes análisis guardados"
@@ -83,9 +147,12 @@ function HistoryPage({ navigate, session }) {
           actionLabel="Crear primer análisis"
           onAction={() => navigate(session.role === "producer" ? "/producer" : "/user")}
         />
-      ) : (
+      )}
+
+      {/* Estado: lista con datos */}
+      {!loading && !error && list.length > 0 && (
         <>
-          {/* controls */}
+          {/* controles */}
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="seg">
               {filters.map((f) => (
@@ -113,5 +180,3 @@ function HistoryPage({ navigate, session }) {
     </>
   );
 }
-
-Object.assign(window, { HistoryPage, HistoryItem });

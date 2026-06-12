@@ -1,12 +1,25 @@
 fastapi==0.115.5
+yt-dlp>=2024.1.1
 uvicorn[standard]==0.32.1
 sqlalchemy==2.0.36
 alembic==1.14.0
 psycopg2-binary==2.9.10
+# Essentia: solo hay wheel para Linux x86_64 (deploy). En Mac/Windows dev el
+# código cae al fallback de pseudo-features.
+essentia==2.1b6.dev1389; sys_platform == "linux" and platform_machine == "x86_64"
+# Requeridos por ml_model/extract_essentia_features.py (flatten_pool).
+numpy
+pandas
+# Inferencia del modelo capa-1 (RandomForestRegressor en model_layer1_success.pkl).
+# Pin a la versión con la que se entrenó/serializó (evita romper el unpickle).
+scikit-learn==1.9.0
+joblib>=1.5.0
 pydantic==2.10.3
 pydantic-settings==2.6.1
 pyjwt[crypto]==2.10.1
 python-multipart==0.0.17
+
+prometheus-fastapi-instrumentator==7.0.0
 
 # dev / tests
 pytest==8.3.4

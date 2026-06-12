@@ -1,3 +1,10 @@
+import {
+  STORAGE_KEYS,
+  DEFAULT_FEATURES,
+  DEFAULT_SUMMARY,
+  DEFAULT_RECOMMENDATIONS,
+} from "./constants.jsx";
+
 // ============================================================
 // mockAnalysisService — simulated ML + persistence layer
 // ------------------------------------------------------------
@@ -168,7 +175,32 @@ function findUserRole(name) {
   return user ? user.role : null;
 }
 
-const mockAnalysisService = {
+// ============================================================
+// withDummyFiller — TEMPORAL hasta que el backend devuelva
+// features, summary y recommendations reales.
+// Mezcla el resultado real del API con relleno dummy SOLO para
+// los campos vacíos. Score, rating, bestReleaseDate y expected*
+// NUNCA se tocan: vienen reales del backend.
+// ============================================================
+export function withDummyFiller(result) {
+  const filled = { ...result };
+
+  if (!filled.features || filled.features.length === 0) {
+    filled.features = buildFeatures();
+  }
+
+  if (!filled.summary) {
+    filled.summary = DEFAULT_SUMMARY;
+  }
+
+  if (!filled.recommendations || filled.recommendations.length === 0) {
+    filled.recommendations = DEFAULT_RECOMMENDATIONS;
+  }
+
+  return filled;
+}
+
+export const mockAnalysisService = {
   analyzeYouTubeLink,
   analyzeMp3File,
   getHistory,

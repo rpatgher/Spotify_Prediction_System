@@ -1,7 +1,11 @@
 // ============================================================
 // WelcomePage — landing screen shown before authentication
 // ============================================================
-function WelcomePage({ navigate }) {
+import React from "react";
+import { PROJECT_NAME, PROJECT_TAGLINE } from "./constants.jsx";
+import { Icon, Wordmark, GradientOrbs } from "./components.jsx";
+
+export function WelcomePage({ onStart }) {
   return (
     <div
       className="relative min-h-full grid place-items-center overflow-hidden p-6"
@@ -25,12 +29,10 @@ function WelcomePage({ navigate }) {
 
         <p className="text-white/55 text-[16px] leading-relaxed max-w-md">{PROJECT_TAGLINE}</p>
 
-        <button onClick={() => navigate("/login")} className="btn-primary justify-center text-[15px] py-3.5 px-8 mt-2">
+        <button onClick={onStart} className="btn-primary justify-center text-[15px] py-3.5 px-8 mt-2">
           Empezar <Icon name="arrow" className="w-4 h-4" />
         </button>
       </div>
     </div>
   );
 }
-
-Object.assign(window, { WelcomePage });

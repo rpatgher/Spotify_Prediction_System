@@ -1,10 +1,11 @@
 // ============================================================
 // Reusable UI components (atoms + molecules)
 // ============================================================
-const { useState, useRef, useCallback, useEffect } = React;
+import React, { useState, useEffect } from "react";
+import { PROJECT_NAME, RATING_HUE, RATING_TEXT } from "./constants.jsx";
 
 // ---- Icons (simple inline strokes) -----------------------------------
-function Icon({ name, className = "w-5 h-5", stroke = 1.7 }) {
+export function Icon({ name, className = "w-5 h-5", stroke = 1.7 }) {
   const common = {
     className,
     viewBox: "0 0 24 24",
@@ -86,12 +87,25 @@ function Icon({ name, className = "w-5 h-5", stroke = 1.7 }) {
       </>
     ),
     bolt: <path d="M13 2L4 14h6l-1 8 9-12h-6z" />,
+    music: (
+      <>
+        <path d="M9 18V5l12-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="18" cy="16" r="3" />
+      </>
+    ),
+    metronome: (
+      <>
+        <path d="M12 21V3M6 21h12" />
+        <path d="M8 9l4-6 4 6" />
+      </>
+    ),
   };
   return <svg {...common}>{P[name] || null}</svg>;
 }
 
 // ---- Brand logo mark (simple equalizer bars) -------------------------
-function Logo({ size = 36 }) {
+export function Logo({ size = 36 }) {
   return (
     <div
       className="relative grid place-items-center rounded-xl shrink-0"
@@ -116,7 +130,7 @@ function Logo({ size = 36 }) {
   );
 }
 
-function Wordmark({ size = 36, sub }) {
+export function Wordmark({ size = 36, sub }) {
   return (
     <div className="flex items-center gap-3">
       <Logo size={size} />
@@ -131,7 +145,7 @@ function Wordmark({ size = 36, sub }) {
 }
 
 // ---- Decorative gradient orbs (login background) ---------------------
-function GradientOrbs() {
+export function GradientOrbs() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       <div className="orb" style={{ background: "oklch(0.6 0.2 162)", top: "-12%", left: "-6%", width: 460, height: 460 }} />
@@ -142,7 +156,7 @@ function GradientOrbs() {
 }
 
 // ---- Source chip (YouTube / MP3) -------------------------------------
-function SourceChip({ source, className = "" }) {
+export function SourceChip({ source, className = "" }) {
   const yt = source === "youtube";
   return (
     <span
@@ -160,7 +174,7 @@ function SourceChip({ source, className = "" }) {
 }
 
 // ---- RatingBadge -----------------------------------------------------
-function RatingBadge({ rating, score, size = "lg" }) {
+export function RatingBadge({ rating, score, size = "lg" }) {
   const hue = RATING_HUE[rating] ?? 150;
   const ring = `oklch(0.72 0.17 ${hue})`;
   const big = size === "lg";
@@ -194,7 +208,7 @@ function RatingBadge({ rating, score, size = "lg" }) {
 }
 
 // ---- Generic surface card --------------------------------------------
-function Card({ className = "", children, style }) {
+export function Card({ className = "", children, style }) {
   return (
     <div className={"card " + className} style={style}>
       {children}
@@ -203,7 +217,7 @@ function Card({ className = "", children, style }) {
 }
 
 // ---- FeatureCard -----------------------------------------------------
-function FeatureCard({ feature, accent = 162 }) {
+export function FeatureCard({ feature, accent = 162, icon = "chart" }) {
   return (
     <Card className="p-5 hover:-translate-y-0.5 transition-transform">
       <div className="flex items-start justify-between gap-3">
@@ -212,7 +226,7 @@ function FeatureCard({ feature, accent = 162 }) {
           className="grid place-items-center w-8 h-8 rounded-lg shrink-0"
           style={{ background: `oklch(0.66 0.18 ${accent} / 0.14)`, color: `oklch(0.74 0.16 ${accent})` }}
         >
-          <Icon name="chart" className="w-4 h-4" />
+          <Icon name={icon} className="w-4 h-4" />
         </span>
       </div>
       <div className="font-display text-2xl font-bold text-white mt-2 mb-3">{feature.value}</div>
@@ -225,7 +239,7 @@ function FeatureCard({ feature, accent = 162 }) {
 }
 
 // ---- RecommendationCard ----------------------------------------------
-function RecommendationCard({ rec, index }) {
+export function RecommendationCard({ rec, index }) {
   return (
     <Card className="p-5 flex gap-4 items-start hover:border-white/15 transition-colors">
       <div
@@ -243,7 +257,7 @@ function RecommendationCard({ rec, index }) {
 }
 
 // ---- InfoBlock (the little 3-up explainer tiles) ---------------------
-function InfoBlock({ icon, title, text, accent = 162 }) {
+export function InfoBlock({ icon, title, text, accent = 162 }) {
   return (
     <div className="flex flex-col gap-2.5">
       <span
@@ -259,7 +273,7 @@ function InfoBlock({ icon, title, text, accent = 162 }) {
 }
 
 // ---- LoadingAnalysis (full overlay) ----------------------------------
-function LoadingAnalysis({ label = "Analizando canción…" }) {
+export function LoadingAnalysis({ label = "Analizando canción…" }) {
   const steps = ["Detectando señales del video", "Simulando datos musicales", "Generando predicción"];
   const [active, setActive] = useState(0);
   useEffect(() => {
@@ -290,7 +304,7 @@ function LoadingAnalysis({ label = "Analizando canción…" }) {
 }
 
 // ---- EmptyState ------------------------------------------------------
-function EmptyState({ icon = "history", title, text, actionLabel, onAction }) {
+export function EmptyState({ icon = "history", title, text, actionLabel, onAction }) {
   return (
     <Card className="p-12 text-center flex flex-col items-center gap-4 max-w-lg mx-auto">
       <span className="grid place-items-center w-16 h-16 rounded-2xl text-white/40" style={{ background: "oklch(0.66 0.16 162 / 0.1)" }}>
@@ -308,8 +322,3 @@ function EmptyState({ icon = "history", title, text, actionLabel, onAction }) {
     </Card>
   );
 }
-
-Object.assign(window, {
-  Icon, Logo, Wordmark, GradientOrbs, SourceChip, RatingBadge, Card,
-  FeatureCard, RecommendationCard, InfoBlock, LoadingAnalysis, EmptyState,
-});

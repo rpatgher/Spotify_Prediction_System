@@ -53,6 +53,10 @@ class PredictionDetail(_CamelModel):
     features: list[FeatureItem]
     summary: str
     recommendations: list[RecommendationItem]
+    # Layer 2: expected YouTube engagement (null if the model was unavailable).
+    expected_views: int | None = Field(default=None, serialization_alias="expectedViews")
+    expected_likes: int | None = Field(default=None, serialization_alias="expectedLikes")
+    expected_comments: int | None = Field(default=None, serialization_alias="expectedComments")
 
 
 class PredictionSummary(_CamelModel):
@@ -65,3 +69,4 @@ class PredictionSummary(_CamelModel):
     created_at: datetime = Field(serialization_alias="createdAt")
     rating: str
     score: int
+    best_release_date: str = Field(serialization_alias="bestReleaseDate")
