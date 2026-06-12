@@ -1,0 +1,489 @@
+# Documentación de Arquitectura e Infraestructura
+## TrackWise — Plataforma de Análisis Predictivo Musical
+
+| Campo | Detalle |
+|---|---|
+| **Proyecto** | TrackWise |
+| **Versión** | 1.1 |
+| **Fecha** | Junio 2026 |
+| **Tipo de documento** | Diseño de arquitectura e infraestructura (prescriptivo) |
+| **Diagrama oficial** | `diagramaarquitectura.png` — "Infraestructura de Red: Diagrama Físico y Virtual" |
+
+---
+
+# Parte I — Arquitectura del Sistema
+
+## 1. Visión general
+
+TrackWise es una aplicación web que recibe una canción — como archivo MP3 o como link de YouTube — extrae sus características de audio, las procesa con un modelo de machine learning propio y devuelve cuatro predicciones:
+
+1. **Probabilidad de éxito comercial** (score 0–100)
+2. **Número estimado de vistas en YouTube**
+3. **Número estimado de likes en YouTube**
+4. **Número estimado de comentarios en YouTube**
+
+El sistema distingue dos roles de usuario — **usuario** (gratuito, analiza por link de YouTube) y **productor** (de pago, además carga archivos MP3) — y mantiene un historial de análisis privado por usuario.
+
+El despliegue se realiza sobre **dos plataformas de virtualización en la nube privada institucional**: OpenStack (administrada parcialmente por los profesores) y Proxmox VE (administrada por el equipo), comunicadas entre sí por la VLAN 130. El acceso de usuarios finales es exclusivamente desde la red de la universidad; el sistema no se expone a internet público.
+
+## 2. Arquitectura lógica
+
+```
+                    Red de la universidad
+                            │  HTTPS :8445 (NAT) / :443 (VLAN)
+                            ▼
+              ┌──────────────────────────────┐
+              │   Nginx LB (OpenStack)       │  ← único punto de entrada
+              │   Terminación TLS            │
+              └───┬──────────┬──────────┬────┘
+            /   (round-robin)  /api/      /realms/
+                │       │        │           │
+                ▼       ▼        │           │   HTTP interno (VLAN130)
+          ┌─────────┐ ┌─────────┐│           │
+          │Frontend1│ │Frontend2││           │   (OpenStack)
+          │  nginx  │ │  nginx  ││           │
+          └─────────┘ └─────────┘│           ▼
+                                 │      ┌──────────────┐
+                                 │      │ Nginx OS-VM1 │ (proxy de seguridad,
+                                 │      │  whitelist   │  solo /realms/canciones)
+                                 │      └──────┬───────┘
+                                 │             ▼
+                                 │      ┌──────────────┐
+                                 │      │  Keycloak    │ (OpenStack, OS-VM1)
+                                 │      └──────┬───────┘
+                                 ▼             │
+                          ┌──────────┐         │       (Proxmox)
+                          │ Backend  │         │
+                          │ FastAPI  │         │
+                          └────┬─────┘         │
+                               │               │
+                               ▼               ▼
+                          ┌──────────────────────────┐  ┌─────────────────────┐
+                          │ PostgreSQL 16 (CT 111)   │  │ Monitoring (CT 112) │
+                          │ databases: app, keycloak │  │ Grafana+Loki+Prom.  │
+                          └──────────────────────────┘  └─────────────────────┘
+```
+
+**Principio clave del diseño**: React corre en el navegador del usuario, no en las VMs de frontend. Todas las llamadas al backend y a Keycloak salen del navegador y entran por el LB en HTTPS. El "HTTP interno" existe únicamente del LB hacia adentro de la VLAN.
+
+## 3. Componentes de aplicación
+
+### 3.1 Frontend (React SPA)
+
+- Build estático de React (`dist/`) servido por **Nginx** en dos VMs idénticas (`frontend-1`, `frontend-2`).
+- El LB balancea entre ambas con round-robin **sin sticky sessions** — por eso ambas VMs deben servir siempre el mismo build (los assets llevan hash de contenido; builds distintos provocan 404 en `/assets/*`).
+- Fallback de SPA: `try_files $uri $uri/ /index.html;` para que las rutas del router de React no devuelvan 404.
+- Sin TLS propio: la terminación TLS ocurre en el LB.
+- Configuración por variables de entorno de Vite (`VITE_KEYCLOAK_URL`, `VITE_KEYCLOAK_REALM`, `VITE_KEYCLOAK_CLIENT_ID`, `VITE_APP_BASE_URL`); se inyectan **en build time**, por lo que cualquier cambio exige `npm run build` y redespliegue en ambas VMs.
+- Vistas: bienvenida/landing pública, análisis para usuarios, análisis para productores, resultados e historial. El enrutamiento por rol es client-side: la SPA lee `tokenParsed.realm_access.roles` y enruta `productor` → `#/producer`, resto → `#/user`.
+
+### 3.2 Backend (FastAPI)
+
+| Atributo | Valor |
+|---|---|
+| Framework | FastAPI + Uvicorn |
+| ORM / migraciones | SQLAlchemy 2 + Alembic |
+| Autenticación | PyJWT — validación RS256 contra JWKS de Keycloak |
+| Extracción de audio | yt-dlp + ffmpeg + Essentia |
+| Modelo ML | Dos bundles joblib (RandomForest) — ver §3.3 |
+| Empaquetado | Docker (contenedor `backend-backend-1`, puerto 8000) |
+| Ubicación | VM `Tec-LM` (Proxmox), 172.16.20.130, VLAN130 |
+
+**Pipeline de análisis** (modelo síncrono con timeouts largos):
+
+1. Recibe un archivo de audio (multipart) o un link de YouTube.
+2. Si es link: descarga el audio con **yt-dlp** (única dependencia de egress a internet del sistema).
+3. Extrae features de audio en el mismo proceso (Essentia; ffmpeg como soporte).
+4. Pasa las features por el modelo de ML → las cuatro predicciones.
+5. Persiste el resultado en la database `app` (constituye el historial) y responde.
+
+Requisitos del modo síncrono: `proxy_read_timeout 300s` y `client_max_body_size 100m` en el LB; varios workers en el backend para que un análisis largo no bloquee al resto; el frontend deshabilita el botón de envío durante la espera. **Criterio de cambio**: si el pipeline supera ~2–3 minutos en pruebas reales, migrar a modo asíncrono (POST devuelve `job_id`, frontend hace polling).
+
+**Endpoints**:
+
+| Método | Ruta | Auth | Notas |
+|---|---|---|---|
+| `GET` | `/health` | No | Health check usado por el LB (sin prefijo `/api` dentro del backend) |
+| `POST` | `/api/predictions/youtube` | Sí (rol `usuario`) | Body JSON con URL de YouTube |
+| `POST` | `/api/predictions/mp3` | Sí (**solo rol `productor`**) | Multipart; 403 si falta el rol |
+| `GET` | `/api/predictions` | Sí | Historial del usuario; query params `source`, `limit`, `offset` |
+| `GET` | `/api/predictions/{id}` | Sí | Predicción individual |
+| `DELETE` | `/api/predictions/{id}` | Sí | Elimina predicción propia |
+
+Patrón POST → GET: los endpoints POST devuelven solo el `id` de la predicción; el cliente hace GET para el resultado completo.
+
+### 3.3 Modelo de Machine Learning
+
+El backend carga dos bundles joblib desde `/ml_model` dentro del contenedor:
+
+| Bundle | Tamaño | Tipo | Salida |
+|---|---|---|---|
+| `model_layer1_success.pkl` | ~34 MB | RandomForestRegressor | `success_score` 0–100 |
+| `model_layer2_youtube.pkl` | ~90 MB | 3 × RandomForestRegressor | Views / Likes / Comments estimados |
+
+- **Capa 1**: 50 features de audio definidas en `capa1_features.json`.
+- **Capa 2**: las mismas 50 features + `predicted_success` (salida de la capa 1). Los targets se entrenan en espacio `log1p` y se transforman de vuelta con `expm1` al responder.
+- **Carga lazy**: los modelos se cargan en memoria en la primera solicitud de análisis.
+- **Fallbacks**: si falta el bundle de capa 1, el score se calcula con una heurística de feature importances; si falta el de capa 2, las métricas de YouTube se devuelven como `null`.
+- **Restricción crítica**: `scikit-learn` está pineado a la versión 1.9.0 — actualizarlo rompe el unpickle de los `.pkl`. No actualizar sin regenerar los bundles.
+- Los `.pkl` (124 MB en total) están en `.gitignore`; viven en `ml_model/` de la VM y se copian a la imagen durante el `docker build` (el build context es la **raíz del repo**, no `backend/`).
+
+### 3.4 Identidad y autenticación (Keycloak)
+
+- **Keycloak 26.4.7** en modo producción (perfil `prod`, no dev-mode), desplegado con Docker Compose en la VM `OS-VM1` de OpenStack (Debian 12, 2 vCPU, 2 GB RAM). Heap acotado: `-Xms256m -Xmx1g` (consumo real ~600–900 MB).
+- Se evaluó Ory Hydra + Kratos y se descartó: aunque más ligeros en RAM, exigen construir UI de login propia, consent app e integración entre ambos. Keycloak resuelve todo en un contenedor.
+- **Configuración del realm**: 1 realm `canciones`; 1 client público `frontend-spa` (Authorization Code + PKCE S256 forzado); 2 roles de realm: `usuario` y `productor`. `usuario` forma parte de `default-roles-canciones`, por lo que todo usuario auto-registrado lo recibe automáticamente. `registrationAllowed=true`.
+- **Tema de login custom** (`tema-canciones.jar`, construido con Keycloakify): la página de login es visualmente idéntica al diseño de la app (layout split, dark, oklch) y vive en la URL de Keycloak.
+- Keycloak usa PostgreSQL (database `keycloak` en CT 111) — nunca su H2 embebida, que pierde datos y no es modo producción.
+
+**Flujo de autenticación**:
+
+1. La SPA usa **Authorization Code + PKCE** con `keycloak-js` 26. Landing pública con `check-sso`; el botón "Empezar" redirige al login hosteado por Keycloak.
+2. Cada request a `/api` lleva `Authorization: Bearer <access_token JWT>`.
+3. El backend **valida la firma del JWT localmente** contra las claves públicas de Keycloak (endpoint JWKS) — sin llamar a Keycloak en cada request. Issuer: `https://172.16.20.144/realms/canciones`; JWKS interno: `http://172.16.20.146/realms/canciones/protocol/openid-connect/certs`.
+4. El rol viaja como claim en `realm_access.roles`; el backend autoriza con él (`require_producer` → 403 si el token no trae `productor`).
+
+**Regla de oro del diseño**: el frontend oculta vistas según rol — eso es UX, no seguridad (cualquiera puede llamar `/api` directo con DevTools). El backend valida rol y propiedad en cada endpoint: el historial se filtra siempre por el claim `sub` del token, nunca por un user_id enviado por el cliente.
+
+### 3.5 Base de datos (PostgreSQL)
+
+- **Una sola instancia** de PostgreSQL 16, en el CT 111 de Proxmox, con **dos databases y usuarios separados**:
+
+| Database | Usuario | Quién la usa | Contenido |
+|---|---|---|---|
+| `app` | `app_user` | Backend FastAPI | Predicciones e historial de análisis |
+| `keycloak` | `keycloak_user` | Keycloak | Usuarios, credenciales, sesiones, realm |
+
+- Ventaja: un solo servicio que administrar; el aislamiento lógico por database/usuario es suficiente a esta escala.
+- **Excepción a la convención Docker**: PostgreSQL corre **bare-metal vía apt** (repo PGDG) en el CT — un solo servicio estable, evita anidar Docker dentro de LXC unprivileged.
+- No existe tabla `users`: la identidad es el claim `sub` de Keycloak guardado en `predictions.user_id`; los roles viven solo en el token JWT.
+- Esquema de predicciones (migraciones Alembic `0001_initial` + `0002_youtube_predictions`): la tabla `predictions` incluye las columnas `expected_views`, `expected_likes`, `expected_comments` (nullable) además del `success_score`, source type/ref, features (JSONB) y timestamps. La columna `optimal_date` (fecha óptima de lanzamiento) fue eliminada del modelo de negocio.
+- Acceso restringido por `pg_hba.conf`: solo la subnet `172.16.20.128/26` con autenticación `scram-sha-256`. `listen_addresses = '*'`. El rol `postgres` no tiene password — solo acceso peer por socket local dentro del CT.
+# Parte II — Infraestructura
+
+## 4. Plataformas de virtualización
+
+El sistema se despliega sobre dos plataformas físicas distintas dentro de la nube privada institucional, conectadas por la misma LAN mediante VLAN:
+
+| Plataforma | Administración | Qué corre ahí |
+|---|---|---|
+| **OpenStack** (nube institucional) | Parcialmente por profesores | Nginx LB, Frontend-1, Frontend-2, Keycloak (OS-VM1) |
+| **Proxmox VE** (PC física del equipo) | Equipo (VLAN 130 / VLAN 140) | Backend FastAPI, PostgreSQL (CT), Monitoring (CT) |
+
+Decisiones de plataforma:
+
+- Las VMs están limitadas a **2 GB de RAM** como norma (la VM del backend fue ampliada a 6 GB por requerimiento de Essentia).
+- En Proxmox se prefieren **CT (LXC)** sobre VMs donde sea posible: menos overhead de virtualización, el límite de 2 GB rinde más. El backend tiene VM propia por decisión del equipo.
+- Keycloak se movió de su plan original (CT en Proxmox) a la VM OpenStack `OS-VM1` ya existente, dejando Proxmox para backend, BD y monitoring.
+
+## 5. Topología de red
+
+### 5.1 VLAN 130 — red de servicios
+
+| Elemento | Valor |
+|---|---|
+| Router | INFRA5 (Cisco C8200L, IOS 17.6) |
+| Interfaz WAN | GigabitEthernet0/0/0 (IP dinámica vía DHCP) |
+| Interfaz LAN trunk | GigabitEthernet0/0/1 |
+| Subred VLAN 130 | `172.16.20.128/26` |
+| Gateway | `172.16.20.129` (subinterfaz Gi0/0/1.130) |
+| Rango de hosts | `172.16.20.130` – `172.16.20.190` |
+| Bridge en Proxmox | `vmbr130` |
+
+Las VLANs definidas en el switch del equipo son: VLAN 110, VLAN 120, **VLAN 130 (servicios del equipo)** y **VLAN 140 (administración / Proxmox)**.
+
+### 5.2 Inventario de máquinas
+
+| # | Nombre | Plataforma | Tipo | IP VLAN130 | Servicios | Recursos |
+|---|---|---|---|---|---|---|
+| 1 | `lb` | OpenStack | VM | 172.16.20.144 | Nginx (LB + TLS + reverse proxy), nginx_exporter, Alloy | 2 GB RAM |
+| 2 | `frontend-1` | OpenStack | VM | 172.16.20.142 | Nginx sirviendo build de React (:8080) | Liviana |
+| 3 | `frontend-2` | OpenStack | VM | 172.16.20.149 | Nginx sirviendo build de React (:8080) | Liviana |
+| 4 | `backend` (Tec-LM) | Proxmox | VM | 172.16.20.130 | API FastAPI en Docker (:8000), Alloy, node_exporter; jump host SSH | 6 GB RAM, 24 GB disco |
+| 5 | `keycloak` (OS-VM1) | OpenStack | VM | 172.16.20.146 | Keycloak 26.4.7 + Nginx de seguridad (Docker Compose), Alloy | Debian 12, 2 vCPU, 2 GB RAM, 20 GB |
+| 6 | `db` | Proxmox | CT 111 | 172.16.20.150 | PostgreSQL 16 (bare-metal), node_exporter, Alloy | Debian 12, 2 vCPU, 2 GB RAM, 16 GB, unprivileged, onboot=1 |
+| 7 | `monitoring` | Proxmox | CT 112 | 172.16.20.151 | Grafana + Loki + Prometheus + node_exporter (Docker) | Debian 12, 2 vCPU, 2 GB RAM, 16 GB, unprivileged + nesting=1, onboot=1 |
+
+Notas de red de los CTs: los CTs de Proxmox heredan el MagicDNS de Tailscale del host, que no resuelve dentro del CT — se configura DNS `8.8.8.8` explícitamente.
+
+### 5.3 Acceso de usuarios (NAT)
+
+El alcance del proyecto requiere acceso **únicamente desde la red de la universidad** — no desde internet público. El único punto de entrada externo es el LB; nada más está NATeado.
+
+| Origen | URL | Mecanismo |
+|---|---|---|
+| Dentro de la VLAN | `https://172.16.20.144/` | Directo al LB (puerto 443 default) |
+| Red de la universidad | `https://10.49.12.38:8445/` | NAT estático del router INFRA5 → LB:443. El puerto :8445 es obligatorio (el NAT solo mapea 8445→443) |
+
+Configuración NAT en INFRA5:
+
+```ios
+! HTTPS (puerto 443 del LB expuesto como 8445 en la WAN)
+ip nat inside source static tcp 172.16.20.144 443 interface GigabitEthernet0/0/0 8445
+```
+
+Consideración de diseño: los redirects del LB deben preservar el puerto `:8445` — se requiere `absolute_redirect off` + `Host $http_host` en Nginx para cualquier location nuevo.
+
+### 5.4 Matriz de tráfico interno
+
+Reglas generales:
+
+- **HTTPS solo en el borde**: el navegador habla HTTPS únicamente con el Nginx LB. Certificado self-signed / CA propia — el navegador muestra advertencia, aceptable en entorno de laboratorio; la CA propia se distribuye a los navegadores del equipo para la demo.
+- **HTTP interno** para todo el tráfico servicio↔servicio dentro de la VLAN.
+- **Un solo dominio/host público** (el del LB) → no hay CORS ni mixed content.
+
+| Servicio | Dirección interna | Acceso |
+|---|---|---|
+| LB nginx | `172.16.20.144:80/443` | :80 redirige 301 a https |
+| Keycloak (vía nginx OS-VM1) | `172.16.20.146:80` | Whitelist: solo `/realms/canciones/` y `/resources/` |
+| Keycloak management/metrics | `127.0.0.1:9000` (loopback OS-VM1) | Solo Alloy local |
+| nginx_exporter del LB | `127.0.0.1:9113` (loopback lb) | Solo Alloy local |
+| PostgreSQL | `172.16.20.150:5432` | Solo subnet VLAN130 (pg_hba, scram-sha-256) |
+| Loki / Prometheus | `172.16.20.151:3100` / `:9090` | Sin auth — aceptado por estar confinado a la VLAN |
+| node_exporters | `:9100` en CT 111, CT 112, Tec-LM | Scrape de Prometheus |
+| Backend API | `172.16.20.130:8000` | `/health` sin auth; resto requiere JWT |
+
+## 6. Load Balancer (Nginx)
+
+El LB es el único punto de entrada del sistema. Corre como contenedor Docker (`nginx:1.27-alpine`) en la VM `lb`, con configuración en `/opt/lb/` (compose + `lb.conf` + certificados).
+
+### 6.1 Ruteo
+
+| Ruta | Destino | Notas |
+|---|---|---|
+| `/` | `frontend-1`, `frontend-2` (upstream round-robin) | Archivos estáticos del SPA |
+| `/api/` | Backend Tec-LM (`172.16.20.130:8000`) | `proxy_read_timeout 300s; client_max_body_size 100m;` |
+| `/api/health` | `backend/health` | Mapeo del health check (el backend no monta `/api` en `/health`) |
+| `/realms/` y `/resources/` | Nginx de OS-VM1 (`172.16.20.146:80`) | Endpoints OIDC y assets del tema de Keycloak |
+| `/auth/` | — | `return 302` a `/realms/canciones/account/` (no es proxy) |
+| `http://` (puerto 80) | — | Redirect 301 a HTTPS |
+
+Configuración relevante del location `/api/`:
+
+```nginx
+upstream backend {
+    server 172.16.20.130:8000;
+}
+
+location /api/ {
+    proxy_pass         http://backend;   # SIN barra final; el backend ya monta el prefijo /api
+    proxy_read_timeout 300s;
+    client_max_body_size 100m;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    proxy_set_header   Host              $host;
+}
+
+location = /api/health {
+    proxy_pass http://backend/health;
+}
+```
+
+- Hacia Keycloak se pasan los headers `X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`; los valores se **propagan desde el proxy anterior** (con fallback a los locales) para que Keycloak genere URLs correctas detrás del NAT `:8445`.
+- El access log se emite en **JSON** (`log_format json_lb`: status, uri, request_time, upstream, upstream_time) hacia stdout de Docker, donde Alloy lo recoge para Loki. El `log_format` debe definirse antes de usarse (orden alfabético de `conf.d`).
+
+### 6.2 TLS
+
+- Certificado **self-signed / CA propia** (generada con `openssl` o `mkcert`) terminado en el LB.
+- El navegador muestra advertencia hasta que la CA se distribuya a los equipos del equipo/demo.
+- No hay TLS interno: del LB hacia adentro todo es HTTP plano por la VLAN.
+
+## 7. Seguridad de Keycloak (proxy de doble capa)
+
+Keycloak está protegido por un **Nginx propio dentro de OS-VM1** (segundo nivel de proxy, además del LB), con el objetivo de exponer únicamente las páginas de login/registro del realm `canciones` y mantener la consola de administración fuera de la red:
+
+| Acceso | URL | Quién llega |
+|---|---|---|
+| Login/registro/account (público) | `http://172.16.20.146/` → 302 a `/realms/canciones/account` | LAN/VLAN |
+| Endpoints OIDC del realm | `http://172.16.20.146/realms/canciones/...` | LAN/VLAN |
+| Consola admin | `http://100.77.61.121:8080/admin/` | **Solo Tailscale** |
+| Realm `master`, `/metrics`, `/health` | Bloqueados en :80 (403) | Solo vía :8080 Tailscale |
+
+Cómo funciona:
+
+1. **Keycloak no publica puertos** — solo es accesible dentro de la red del compose como `keycloak:8080`.
+2. **Nginx (`nginx:1.27-alpine`) delante**, con dos listeners:
+   - `listen 80` (público): whitelist de rutas — `/realms/canciones/`, `/resources/` (assets del tema), `/robots.txt`; `/` redirige al account console. **Todo lo demás → 403** (incluye `/admin`, `/realms/master`, `/metrics`, `/health`).
+   - `listen 8080` (admin): proxy completo a Keycloak sin filtro.
+3. **Restricción del admin por binding, no por allowlist**: el puerto 8080 de nginx se publica como `100.77.61.121:8080:8080` — solo en la interfaz `tailscale0`. Desde LAN el puerto ni siquiera abre (connection refused). Nota de diseño: una allowlist `allow 100.64.0.0/10` en nginx **no funciona** porque Docker enmascara el origen (nginx siempre ve el gateway del bridge); el bind a la IP de Tailscale es la solución confiable.
+4. Tres configuraciones trabajan en conjunto para la consola admin vía Tailscale: `KC_HOSTNAME_ADMIN=http://100.77.61.121:8080`, `frontendUrl` del realm `master` apuntando a esa URL, y `sslRequired=NONE` **solo en `master`** (la IP Tailscale 100.x no es RFC1918, por lo que HTTP plano cuenta como "external"). El realm `canciones` mantiene su `sslRequired` original.
+
+Decisión de hostname: `KC_HOSTNAME=https://172.16.20.144` deliberadamente **sin** prefijo `/auth`. El LB solo proxya `/realms/` y `/resources/`; `location /auth/` es un 302 fijo. Issuer resultante: `https://172.16.20.144/realms/canciones`.
+
+Consideración de arranque: el bind `100.77.61.121:8080` exige que Tailscale esté arriba cuando Docker publica el puerto. Si tras un reboot el contenedor nginx no levanta (`bind: cannot assign requested address`), ejecutar `docker compose up -d` después de que Tailscale conecte, o agregar dependencia systemd docker→tailscaled.
+# Parte III — Operación
+
+## 8. Estrategia de despliegue
+
+### 8.1 Convención: Docker Compose por máquina
+
+- Cada máquina corre sus servicios como contenedores con un `docker-compose.yml` pequeño y propio.
+- Actualizar = `docker compose pull && docker compose up -d`. Rollback = fijar el tag anterior de la imagen.
+- Keycloak, Grafana, Loki, Prometheus y los nginx usan imágenes oficiales; frontend y backend se empaquetan en imágenes propias.
+- **Excepción**: PostgreSQL corre bare-metal vía apt en el CT 111 — un solo servicio estable; se evita anidar Docker dentro de LXC unprivileged.
+
+### 8.2 Despliegue del backend
+
+- El código se sincroniza por git directamente en la VM (`git pull` con llave SSH dedicada `~/.ssh/key_mainGH` hacia el repositorio del equipo).
+- Workflow: `git pull && docker compose -f docker-compose.prod.yml up -d --build`. Alembic ejecuta `upgrade head` automáticamente al arrancar.
+- El build context es la **raíz del repo** (la imagen necesita `ml_model/`). La imagen incluye `ffmpeg` (apt) y el wheel de Essentia `2.1b6.dev1389` — solo disponible para linux x86_64; en desarrollo sobre Mac, el código cae a un fallback de pseudo-features.
+- Los `.pkl` del modelo (gitignoreados) se copian manualmente a `ml_model/` de la VM cuando se regeneran.
+- El `.env` real (credenciales de BD, flags de auth) existe únicamente en la VM, gitignoreado; el repo incluye `.env.example` con placeholders.
+- Smoke test posterior al deploy: `curl localhost:8000/health` → `{"status":"ok"}`; `POST /api/predictions/youtube` sin token → 401.
+- Rebuild de imagen necesita ~2–3 GB libres (sklearn + Essentia + 124 MB de modelos).
+
+### 8.3 Despliegue del frontend
+
+- Build de producción con `npm run build` y publicación del `dist/` en **ambas** VMs de frontend (fe1 y fe2), siempre juntas — assets con hash + round-robin sin sticky sessions hacen que builds desiguales rompan con 404.
+- Nginx en cada fe está habilitado con `systemctl enable`, por lo que el servicio sobrevive reboots.
+- Las variables `VITE_*` se hornean en build time; cambiar URL/realm/client de Keycloak o la base URL exige rebuild + redeploy en ambas VMs. Cada entorno (fe1, fe2, dev local) mantiene su propio `.env` (gitignoreado, plantilla `app/.env.example`).
+
+### 8.4 Acceso administrativo (solo equipo)
+
+La política de administración: **nunca NATear consolas**. El acceso administrativo va exclusivamente por Tailscale (WireGuard) o SSH con jump hosts.
+
+| Servicio | URL | Nodo |
+|---|---|---|
+| Grafana | `http://100.73.13.98:3000` | `monitoring` (CT 112) |
+| Prometheus | `http://100.73.13.98:9090` | `monitoring` (CT 112) |
+| Consola admin Keycloak | `http://100.77.61.121:8080/admin/` | OS-VM1 (bind solo a tailscale0) |
+| SSH a todo | aliases `PVE-Tec`, `Tec-LM`, `OS-VM1`, `lb`, `fe1`, `fe2` | `lb` y `OS-VM1` vía jump por Tec-LM; fe1/fe2 con doble ProxyJump Tec-LM→lb |
+
+Tailscale está instalado en todas las máquinas administradas (con la excepción del LB, cuyo backup sale por VLAN); su rol es acceso remoto del equipo, no tráfico de producción.
+
+Regla para servicios nuevos: antes de desplegar, decidir en qué fila de la tabla de accesos cae (usuario final / admin / interno) y aplicar la política correspondiente.
+
+## 9. Observabilidad
+
+### 9.1 Stack central (CT 112 `monitoring`)
+
+| Componente | Versión | Rol |
+|---|---|---|
+| Prometheus | v3.4.1 | Métricas: scrapea node_exporters y recibe push (`remote_write`) — retención 15 días |
+| Loki | v3.5.0 | Logs centralizados — retención 7 días (168 h), storage filesystem, sin auth (confinado a VLAN) |
+| Grafana | v12.0.1 | Dashboards y exploración de logs; datasources Prometheus y Loki provisionados |
+
+El CT es un LXC unprivileged con `nesting=1` (Docker dentro de LXC) y TUN habilitado para Tailscale. Todo el stack vive en `/opt/monitoring/` (compose + configs + datos).
+
+### 9.2 Patrón de recolección por plataforma
+
+El diseño usa dos patrones según las restricciones de red de cada plataforma:
+
+- **Máquinas Proxmox** (sin restricción de ingreso): `node_exporter` en `:9100` scrapeado por Prometheus + Alloy enviando logs a Loki.
+- **Máquinas OpenStack** (security groups restrictivos): **todo en modo push** — Alloy recolecta localmente (logs + métricas, incluyendo scrapes a exporters en loopback) y hace `remote_write` a Prometheus y push a Loki. Solo requiere egress.
+
+| Máquina | Agentes | Detalle |
+|---|---|---|
+| CT 111 `db` | node_exporter + Alloy | Journal + logs de PostgreSQL → Loki (`host=db`) |
+| CT 112 `monitoring` | node_exporter | Sus propios logs no se envían (Loki es local — aceptado) |
+| Tec-LM `backend` | node_exporter + Alloy | Journal + logs Docker del contenedor backend (`host=backend`) |
+| OS-VM1 `keycloak` | Alloy (push) | Journal + logs Docker; métricas node + scrape de Keycloak `/metrics` en management :9000 (job `keycloak`) |
+| `lb` | Alloy (push) + nginx_exporter | Journal + access log JSON de nginx; métricas node + scrape de nginx_exporter `127.0.0.1:9113` (job `nginx`) |
+
+Métricas nativas de Keycloak habilitadas: `KC_METRICS_ENABLED`, `KC_EVENT_METRICS_USER_ENABLED`, `KC_CACHE_METRICS_HISTOGRAMS_ENABLED`; el endpoint `/metrics` vive en el **management interface :9000** (publicado solo en loopback), no en :8080.
+
+### 9.3 Dashboards
+
+| Dashboard | Fuente | Contenido |
+|---|---|---|
+| Node Exporter Full (ID 1860) | node_exporters | CPU/RAM/disco/red por máquina |
+| Nginx Traffic (LB) — uid `nginx-lb` | nginx_exporter + Loki | req/s, % 5xx (alertable >1%), conexiones, status codes, latencia upstream p95, requests por ruta, log de errores |
+| Keycloak Security — uid `keycloak-sec` | Keycloak /metrics + Loki | Heap % sobre 1 GB (alerta 80%), CPU, % logins fallidos 1h (alerta 5% — fuerza bruta), conexiones DB, JVM/GC, eventos de usuario, logs WARN/ERROR |
+
+### 9.4 Instrumentación del backend (diseño)
+
+El backend emite **logs JSON estructurados a stdout** (un evento por línea), recogidos por Alloy. Todo evento incluye `timestamp`, `level`, `event`, `request_id` (UUID propagado por el pipeline) y `user_sub` (claim del JWT — nunca el email).
+
+Eventos del pipeline: `analysis.received`, `analysis.download.start/done/failed`, `analysis.features.done`, `analysis.inference.done`, `analysis.completed` (con `total_duration_s` — el dato clave para la decisión síncrono→asíncrono), `analysis.failed` (con `stage`). Eventos de seguridad: `upload.rejected`, `auth.forbidden`, `auth.token_invalid`.
+
+Métricas a exponer en `/metrics` (con `prometheus-client` / `prometheus-fastapi-instrumentator`):
+
+- HTTP genéricas: `http_requests_total{method,route,status}`, `http_request_duration_seconds{route}`.
+- De negocio: `analysis_total{source_type,user_role,outcome}`, `analysis_stage_duration_seconds{stage}` (la métrica clave del pipeline), `analysis_in_progress` (gauge — con 4 workers síncronos, llegar a 4 significa cola), `analysis_score` (histograma — detecta modelo degenerado), `download_bytes_total`, `model_info{version}`.
+
+El job `backend-app` de Prometheus queda definido (target `172.16.20.130:8000/metrics`) y se activa cuando el backend exponga el endpoint.
+
+### 9.5 Historial de análisis
+
+El historial de análisis está completamente implementado. El frontend consume los endpoints reales del backend (`GET /api/predictions`, `GET /api/predictions/{id}`, `DELETE /api/predictions/{id}`) con el token JWT del usuario autenticado. El backend filtra siempre por el claim `sub` del token — cada usuario solo ve sus propios análisis.
+
+## 10. Backups
+
+### 10.1 Principio
+
+Solo se respalda **estado no reconstruible**. Hay dos dispositivos físicos (Proxmox y OpenStack): **cada backup cruza al hardware opuesto**. No se respaldan: imágenes Docker, paquetes, SO, builds de frontend, métricas de Prometheus ni logs de Loki (reconstruibles/desechables). El código vive en git.
+
+### 10.2 Mapa de backups
+
+| # | Qué | Origen (física) | Destino (física) | Vía | Frecuencia | Retención |
+|---|---|---|---|---|---|---|
+| 1 | PostgreSQL (dumps `-Fc` de `app` y `keycloak` + globals) | CT 111 (Proxmox) | `lb:/opt/db-backups/` (OpenStack) | VLAN130 | Horaria (min 0) | 48 h |
+| 2 | Configs del LB (compose, lb.conf, certs TLS + key) | `lb` (OpenStack) | `Tec-LM:~/backups/lb/` (Proxmox) | VLAN130 | Diaria 03:30 | 14 días |
+| 3 | Configs del backend (`.env`, compose, config futura) | `Tec-LM` (Proxmox) | `lb:/opt/config-backups/backend/` | VLAN130 | Diaria 03:40 | 14 días |
+| 4 | Configs Keycloak + realm export JSON | `OS-VM1` (OpenStack) | `Tec-LM:~/backups/keycloak/` (Proxmox) | Tailscale | Diaria 03:50 | 14 días |
+| 5 | vzdump del CT 111 completo (~577 MB) | PVE-Tec (Proxmox) | local + `lb:/opt/vzdump/` | VLAN130 | Semanal dom 04:00 | 2 copias |
+| 6 | Monitoring: configs + `grafana.db` | CT 112 (Proxmox) | `lb:/opt/config-backups/monitoring/` | VLAN130 | Diaria 04:10 | 14 días |
+
+Los seis flujos están operativos y verificados end-to-end.
+
+### 10.3 Mecánica común
+
+- Todo es **rsync sobre SSH** con key ed25519 dedicada por origen (sin passphrase, comment identificando el flujo), pubkey instalada en el `authorized_keys` del destino.
+- Opciones SSH: `StrictHostKeyChecking=accept-new`, `ConnectTimeout=10` (el cron no queda colgado).
+- **No-fatal**: si el destino está caído, queda WARN en el log y el backup local continúa.
+- `rsync --delete` propaga la retención del origen al destino.
+- Cada máquina tiene su script en `/usr/local/bin/`, su cron en `/etc/cron.d/` y su log en `/var/log/`. Los scripts de setup (idempotentes) viven en `scripts/` del repo e imprimen al final la pubkey a instalar en el destino.
+- Ruta especial del flujo 4: `OS-VM1` empuja por **Tailscale** (los security groups de OpenStack restringen la VLAN); `lb` no tiene Tailscale, por lo que empuja por VLAN.
+- El realm export de Keycloak (`kc.sh export`) puede fallar mientras el server corre (conflicto de segunda JVM) — es no-fatal; la database `keycloak` ya cubre el realm, el JSON es un extra seguro.
+
+### 10.4 Restore
+
+- **DB**: `psql -f globals-<ts>.sql` (roles) → `pg_restore -C -d postgres <db>-<ts>.dump`.
+- **Configs**: `tar -xzf` del tar.gz correspondiente en la máquina reconstruida.
+- **CT 111 entero**: `pct restore 111 /var/lib/vz/dump/vzdump-lxc-111-<ts>.tar.zst` en PVE-Tec (o bajar la copia desde `lb:/opt/vzdump/`).
+- **Realm Keycloak**: `kc.sh import --file canciones-export-<ts>.json` en un Keycloak limpio.
+- Mitigación extra para demos calificadas: vzdump manual del CT 111 antes de presentar (~5 min).
+
+---
+
+# Parte IV — Decisiones de diseño y registro
+
+## 11. Decisiones de arquitectura (ADR resumido)
+
+| # | Decisión | Alternativa descartada | Justificación |
+|---|---|---|---|
+| 1 | Keycloak para identidad | Ory Hydra + Kratos | Hydra+Kratos son más ligeros en RAM pero exigen UI de login propia, consent app e integración; Keycloak resuelve todo en un contenedor |
+| 2 | Keycloak en OS-VM1 (OpenStack) | CT en Proxmox (plan original) | La VM ya existía; Proxmox quedó dedicado a backend/db/monitoring |
+| 3 | PostgreSQL único con 2 databases | Instancia por servicio | Un solo servicio que administrar; aislamiento lógico por database/usuario suficiente a esta escala |
+| 4 | PostgreSQL bare-metal en CT | PostgreSQL en Docker | Evita anidar Docker en LXC unprivileged; un único servicio estable |
+| 5 | Pipeline síncrono con timeouts largos | Cola asíncrona con jobs | Simplicidad; criterio de cambio definido (si supera 2–3 min → job_id + polling, cambio localizado) |
+| 6 | Extracción de features en el mismo proceso | Servicio separado / API externa | Menos partes móviles; la VM del backend se dimensionó (6 GB) para Essentia |
+| 7 | TLS solo en el borde, HTTP interno | TLS extremo a extremo | VLAN privada; un solo dominio público elimina CORS y mixed content |
+| 8 | Whitelist nginx delante de Keycloak + admin por binding Tailscale | Allowlist de IPs en nginx | Docker enmascara el origen (nginx ve el gateway del bridge); el bind a tailscale0 es confiable |
+| 9 | Roles de realm `usuario`/`productor` | Atributo custom de usuario | Los roles de realm viajan en el token (`realm_access.roles`) y permiten autorización directa en backend |
+| 10 | Enrutamiento por rol client-side | Redirect por rol en Keycloak | OIDC no soporta redirect URIs dinámicos por rol; la SPA lee los roles del token y enruta |
+| 11 | Validación local de JWT (JWKS) | Introspección contra Keycloak por request | Sin latencia extra ni dependencia de Keycloak en el hot path |
+| 12 | Backups cruzados entre físicas | Backup local | La pérdida de un hardware completo no destruye los datos |
+| 13 | Push (Alloy) para máquinas OpenStack | Scrape directo | Los security groups de OpenStack bloquean ingreso; push solo requiere egress |
+| 14 | Distribución de CA propia | Certificado público (Let's Encrypt) | Sin dominio público ni exposición a internet; CA propia es suficiente para el laboratorio |
+
+## 12. Riesgos y consideraciones operativas conocidas
+
+- **scikit-learn pineado a 1.9.0**: actualizar rompe el unpickle de los modelos. Regenerar bundles antes de cualquier upgrade.
+- **fe1 y fe2 deben servir siempre el mismo build** (assets con hash + round-robin sin sticky sessions).
+- **Variables Vite en build time**: no existe configuración runtime del frontend.
+- **El bind del admin de Keycloak a tailscale0** depende de que Tailscale arranque antes que Docker tras un reboot.
+- **El NAT externo (`https://10.49.12.38:8445`) debe estar registrado como redirect URI** en el client OIDC `frontend-spa` de Keycloak para que el login funcione desde la red de la universidad. Los redirect URIs configurados son: `https://172.16.20.144/*` (VLAN directa), `http://localhost:5173/*` (dev local) y `https://10.49.12.38:8445/*` (NAT universidad).
+- **Security group `TrikaTrika` más amplio de lo necesario** (TCP 8080/443 desde `0.0.0.0/0`); endurecer el prefijo remoto a `172.16.20.128/26`.
+- **Nginx de los frontends sirve `dist/` desde `/home/debian/...`** — depende de que `/home/debian` siga siendo world-traversable; si los permisos se endurecen, mover a `/var/www`.
+- Los CTs de Proxmox necesitan DNS explícito (`8.8.8.8`) por el MagicDNS heredado del host.
+
+## 13. Trabajo futuro
+
+1. Backend: devolver `features`/`summary`/`recommendations` reales (el frontend los rellena con datos dummy mientras tanto) y exponer `/metrics`.
+2. Frontend: mostrar `expected_views/likes/comments` en la UI de resultados.
+3. Reescribir los tests Playwright que dependían del login mock eliminado.
+4. Validar/rechazar audio corrupto en lugar de caer al fallback de pseudo-features.
+5. Endurecer el security group de OpenStack al prefijo de la VLAN.
+6. Tercera copia de backups fuera del laboratorio (opcional).
+7. Distribuir la CA propia a los navegadores del equipo para la demo.

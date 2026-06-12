@@ -1,0 +1,172 @@
+# Documento de Alcance
+## Plataforma de Análisis Predictivo Musical
+
+
+
+---
+
+## 1. Descripción del proyecto
+
+La plataforma es una aplicación web  orientada a productores musicales y melomanos. Permite analizar el potencial comercial de una canción mediante un modelo de machine learning propio, generando predicciones cuantitativas que apoyan decisiones de producción y marketing.
+
+El sistema soporta dos modalidades de entrada: carga de archivo MP3 (para productores con cuenta de pago) e inserción de link de YouTube (para usuarios en versión gratuita). El procesamiento es realizado por un servicio de ML desarrollado íntegramente por el equipo, entrenado con un dataset propio construido a partir de un dataset base externo.
+
+El proyecto cubre el ciclo completo de ingeniería de software: diseño, desarrollo, integración y despliegue en nube privada institucional.
+
+---
+
+## 2. Objetivos del proyecto
+
+### Objetivo general
+Desarrollar e implementar una plataforma web que aplique técnicas de machine learning para predecir el desempeño comercial de canciones, a partir del análisis de características de audio.
+
+### Objetivos específicos
+- Diseñar e implementar un modelo de ML capaz de predecir probabilidad de éxito, vistas, likes y comentarios en YouTube.
+- Desarrollar un backend con API REST que exponga el servicio de predicción de forma segura y escalable.
+- Construir un frontend React que ofrezca una experiencia diferenciada según el rol del usuario, con énfasis en usabilidad y accesibilidad.
+- Gestionar autenticación, sesiones y autorización mediante Keycloak con soporte para múltiples roles.
+- Implementar mecanismos de seguridad en todas las capas: cifrado en tránsito, tokens seguros, encriptación de datos sensibles y validación de entradas.
+- Diseñar la base de datos en forma normal con justificación del modelo relacional.
+- Desplegar la plataforma completa en nube privada institucional con configuración de red documentada.
+
+---
+
+## 3. Alcance funcional
+
+### 3.1 Lo que está DENTRO del alcance
+
+#### Módulo de análisis de audio
+- Carga de archivo MP3 por parte del productor musical (usuario de pago).
+- Ingreso de link de YouTube por parte del usuario normal (versión gratuita).
+- Extracción de características de audio para alimentar el modelo de ML.
+- Generación de las siguientes predicciones:
+  - Probabilidad de éxito comercial (%)
+  - Número estimado de vistas en YouTube
+  - Número estimado de likes en YouTube
+  - Número estimado de comentarios en YouTube
+- Presentación de resultados con visualización clara al usuario.
+
+#### Módulo de historial
+- Registro de cada análisis realizado, asociado al usuario
+- Consulta del historial de análisis propios.
+- Almacenamiento de resultados de predicción para referencia futura.
+
+#### Módulo de gestión de usuarios y autenticación
+- Registro e inicio de sesión con autenticación gestionada por Keycloak.
+- Dos roles de usuario: **Productor musical** (de pago, carga MP3) y **Usuario normal** (gratuito, link de YouTube).
+- Control de acceso basado en roles (RBAC).
+- Manejo de sesiones: emisión, renovación y revocación de tokens JWT; expiración configurable por rol.**
+- Cierre de sesión explícito con invalidación de token en Keycloak.
+
+#### Módulo de seguridad
+- Comunicación cifrada mediante TLS/HTTPS en todos los endpoints públicos (certificados gestionados en la nube privada).
+- Tokens de acceso firmados (JWT) con algoritmo RS256; almacenamiento seguro en cliente (httpOnly cookies, no localStorage). El token viaja como header y vive en la memoria del javascript
+- Manejo seguro de secretos de configuración mediante variables de entorno (no hardcodeados en código fuente ni en repositorio).
+
+#### Base de datos
+- Diseño relacional normalizado
+- Base de datos PostgreSQL como único almacén de datos relacionales del sistema.
+- Separación lógica entre entidades: usuarios, organizaciones, análisis, predicciones e historial.
+
+#### UI/UX, usabilidad y accesibilidad
+- Interfaz diferenciada por rol (vistas distintas para productor y usuario normal).
+- Diseño responsive para uso en escritorio y dispositivos móviles (navegador web).
+- Principios de usabilidad aplicados: navegación clara, retroalimentación de estado, manejo de errores visible al usuario.
+- Accesibilidad básica: contraste de colores adecuado, etiquetas semánticas HTML, navegación por teclado en formularios clave.
+
+#### Motor de ML (servicio interno)
+- Modelo de machine learning entrenado con dataset propio (basado en dataset externo).
+- Servicio expuesto como API interna (FastAPI) consumida exclusivamente por el backend.
+- Pipeline de inferencia: recibe características de audio y devuelve las cuatro métricas predichas.
+
+#### Infraestructura y despliegue
+- Despliegue completo en nube privada institucional con salida a internet.
+- Dos instancias del frontend para redundancia.
+- Configuración de red documentada (VLANs, firewalls, zonas).
+- Contenedorización con Docker / docker-compose con archivos comentados.
+
+---
+
+### 3.2 Lo que está FUERA del alcance
+
+| Elemento | Justificación |
+|---|---|
+| Integración directa con la API de YouTube (escritura) | El sistema solo lee datos del link; no publica ni gestiona contenido en YouTube. |
+| Plataforma de pagos / cobro en línea | La distinción de roles se gestiona por asignación manual; no se implementa pasarela de pago. |
+| Aplicación móvil nativa (iOS / Android) | El frontend es una SPA web responsive; no se desarrolla app nativa. |
+| Reentrenamiento automático del modelo en producción | El modelo se entrena offline; no existe pipeline de retraining automático en producción. |
+| Soporte multiidioma (i18n) | La plataforma opera en español únicamente. |
+| Integración con otras plataformas de streaming (Spotify, Apple Music) | Las predicciones se enfocan en métricas de YouTube. |!!! ***
+| Análisis en tiempo real / streaming de audio | El procesamiento es batch por canción, no streaming continuo. !!!|
+| Panel de administración de la plataforma (superadmin) | La gestión interna queda fuera del MVP. |
+
+
+---
+
+## 4. Entregables del proyecto
+
+| # | Entregable | Categoría |
+|---|---|---|
+| 1 | Documento de alcance  | Definición |
+| 2 | Lista de requerimientos funcionales y no funcionales | Definición |
+| 3 | Casos de uso por rol | Definición |
+| 4 | Diagrama de arquitectura del sistema | Diseño |
+| 5 | ERD — modelo de datos con formas normales y justificación | Diseño / BD |
+| 6 | Wireframes / mockups de pantallas clave | Diseño / UX |
+| 7 | Documentación del dataset y modelo de ML | ML |
+| 8 | Especificación de API (OpenAPI/Swagger) | Integración |
+| 9 | Dockerfiles y docker-compose comentados | Infraestructura |
+| 10 | Plan de pruebas | Calidad |
+| 11 | Reporte de pruebas realizadas (resultados y evidencia) | Calidad |
+| 12 | Manual de usuario (por rol) | Documentación final |
+| 13 | SOW — Statement of Work | Gestión |
+
+
+---
+
+## 5. Restricciones
+
+| Restricción | Descripción |
+|---|---|
+| **Infraestructura** | El despliegue se realiza exclusivamente en la nube privada institucional. |
+| **Modelo de ML** | El modelo debe ser desarrollado por el equipo; no se permite el uso de APIs de ML externas como servicio principal de predicción. |
+| **Dataset** | El dataset de entrenamiento se construye a partir de un dataset base externo, enriquecido o adaptado por el equipo. | !!!***
+| **Base de datos** | El diseño relacional debe cumplir mínimo 3FN y estar documentado con justificación. |
+| **Seguridad** | Toda comunicación externa debe ir cifrada con TLS; los tokens deben seguir el estándar JWT con firma asimétrica. |
+| **Tiempo** | El proyecto tiene una fecha de entrega académica fija que condiciona el alcance |
+| **Equipo** | El desarrollo es realizado por el equipo del proyecto sin soporte de personal externo. |
+
+---
+
+## 6. Supuestos
+
+- La nube privada institucional tiene capacidad de cómputo suficiente para ejecutar el modelo de ML en inferencia.
+- Los usuarios finales (productores) cuentan con archivos MP3 de calidad suficiente para la extracción de características.
+- El dataset base externo es de acceso libre o académico y puede ser utilizado sin restricciones legales.
+- Keycloak puede ser desplegado como contenedor en la misma nube privada.
+
+---
+
+## 7. Criterios de éxito
+
+- El sistema predice las cuatro métricas definidas con un desempeño de modelo aceptable (a definir en la documentación de ML, ej. AUC-ROC > 0.75 para clasificación de éxito).
+- Ambos flujos de usuario (MP3 y link de YouTube) funcionan de extremo a extremo en el entorno de producción desplegado.
+- La autenticación con Keycloak opera correctamente para ambos roles, con sesiones que expiran y se renuevan según la configuración.
+- Toda la comunicación externa utiliza HTTPS con certificado válido; no hay endpoints HTTP expuestos.
+- La base de datos cumple mínimo 3FN y el diseño está documentado con justificación.
+- La interfaz cumple los criterios de usabilidad y accesibilidad definidos en el plan de pruebas.
+- La plataforma opera correctamente con las dos instancias de frontend en redundancia.
+- Toda la infraestructura está documentada con archivos de configuración comentados y es reproducible desde cero.
+- El proyecto entrega la documentación completa listada en la sección 4, incluyendo SOW, manual de usuario y reporte de pruebas.
+
+---
+
+## 8. Stakeholders
+
+| Rol | Descripción | Nivel de influencia |
+|---|---|---|
+| Equipo de desarrollo | Diseña, desarrolla y despliega la plataforma | Alto — ejecutor |
+| Docente / asesor académico | Evalúa el proyecto y valida entregables | Alto — decisor de aprobación |
+| Productor musical (usuario) | Usuario de pago, usa la plataforma para evaluar canciones | Medio — usuario final primario |
+| Usuario normal | Usuario gratuito, consulta canciones por curiosidad | Bajo — usuario final secundario |
+| Área de TI institucional | Provee y administra la infraestructura de nube privada | Medio — proveedor de infraestructura |
