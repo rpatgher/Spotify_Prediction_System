@@ -3,6 +3,7 @@
 // ============================================================
 import React, { useState as useStateD } from "react";
 import { mockAnalysisService } from "./mockService.jsx";
+import { apiService } from "./apiService.jsx";
 import { Icon, Card, InfoBlock, LoadingAnalysis } from "./components.jsx";
 import { PageHeader, YouTubeInput, FileUploadDropzone } from "./layout.jsx";
 
@@ -11,16 +12,23 @@ export function isValidYouTube(url) {
 }
 
 // Shared: run an analysis, persist it, route to results.
+// Returns a function that accepts (promise, setError).
+// On failure: clears loading and surfaces error.message via setError.
 function useRunAnalysis({ navigate, setLoading, onResult }) {
-  return async (promise) => {
+  return async (promise, setError) => {
     setLoading(true);
-    const result = await promise;
-    // 1. current analysis  2. push to history  3. redirect
-    mockAnalysisService.setCurrentAnalysis(result);
-    mockAnalysisService.saveToHistory(result);
-    onResult();
-    setLoading(false);
-    navigate("/results");
+    try {
+      const result = await promise;
+      // 1. current analysis  2. push to history (local)  3. redirect
+      mockAnalysisService.setCurrentAnalysis(result);
+      mockAnalysisService.saveToHistory(result);
+      onResult();
+      navigate("/results");
+    } catch (err) {
+      setError(err.message || "Error inesperado. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
+    }
   };
 }
 
@@ -33,7 +41,7 @@ export function UserDashboardPage({ navigate, setLoading, loading, onResult }) {
   const analyze = () => {
     if (!isValidYouTube(url)) { setError("Ingresa un link válido de YouTube."); return; }
     setError("");
-    run(mockAnalysisService.analyzeYouTubeLink(url.trim()));
+    run(apiService.analyzeYouTubeLink(url.trim()), setError);
   };
 
   const blocks = [
@@ -84,12 +92,12 @@ export function ProducerDashboardPage({ navigate, setLoading, loading, onResult 
 
   const analyzeMp3 = () => {
     if (!file) { setFileError("Selecciona un archivo .mp3 para analizar."); return; }
-    run(mockAnalysisService.analyzeMp3File(file));
+    run(apiService.analyzeMp3File(file), setFileError);
   };
   const analyzeUrl = () => {
     if (!isValidYouTube(url)) { setUrlError("Ingresa un link válido de YouTube."); return; }
     setUrlError("");
-    run(mockAnalysisService.analyzeYouTubeLink(url.trim()));
+    run(apiService.analyzeYouTubeLink(url.trim()), setUrlError);
   };
 
   const blocks = [
