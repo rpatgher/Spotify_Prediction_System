@@ -37,10 +37,15 @@ class Prediction(Base):
         index=True,
     )
 
-    # ---- Model output (placeholder for now) ----
+    # ---- Layer 1: Spotify success ----
     rating: Mapped[str] = mapped_column(String(1))
     score: Mapped[int] = mapped_column()
     best_release_date: Mapped[str] = mapped_column(String(128))
     summary: Mapped[str] = mapped_column(String)
     features: Mapped[list] = mapped_column(JSONType)
     recommendations: Mapped[list] = mapped_column(JSONType)
+
+    # ---- Layer 2: expected YouTube engagement (nullable; model may be absent) ----
+    expected_views: Mapped[int | None] = mapped_column(nullable=True)
+    expected_likes: Mapped[int | None] = mapped_column(nullable=True)
+    expected_comments: Mapped[int | None] = mapped_column(nullable=True)

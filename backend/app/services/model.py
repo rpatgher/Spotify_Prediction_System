@@ -1,24 +1,45 @@
-"""ML model inference.
+"""ML model inference — two cascaded layers.
 
-Uses a heuristic weighted by the feature importances of the trained XGBoost
-(see ml_model/Spotify_Success_Prediction.ipynb §4.7):
+Layer 1 (model_layer1_success.pkl): a RandomForestRegressor that predicts a
+0–100 `success_score` from 50 audio/metadata features.
 
-  instrumentalness 0.14 | loudness 0.086 | acousticness 0.083
-  energy 0.076          | danceability 0.069
+Layer 2 (model_layer2_youtube.pkl): three RandomForestRegressors (Views, Likes,
+Comments) that predict YouTube engagement from 50 audio/metadata features PLUS
+the layer-1 score appended last as `predicted_success` (51 inputs total). The
+targets were trained on log1p, so the raw output is reverted with expm1 to real
+counts.
 
-Key insight from the notebook: successful songs tend to have vocals (low
-instrumentalness), loud production, low acousticness, high energy and
-high danceability.
+Bundles:
+  layer 1: {"model": RandomForestRegressor, "features": [50 cols]}
+  layer 2: {"models": {"Views","Likes","Comments"}, "features": [50 cols],
+            "uses_predicted_success": True}
 
-To plug in the real XGBoost, replace the body of `predict` with:
-    model  = joblib.load("model.pkl")
-    scaler = joblib.load("scaler.pkl")
-    cols   = json.loads(Path("feature_list.json").read_text())
-    x      = scaler.transform([[features.get(c, 0.0) for c in cols]])
-    pred   = int(model.predict_proba(x)[0][1] * 100)   # probability → score
+Both .pkl files are gitignored (too large for GitHub); they live in ml_model/
+for local dev and are placed manually on the deployed server. When a model file
+is missing/unloadable (e.g. CI), the corresponding output falls back: layer 1 to
+a deterministic heuristic score, layer 2 to None.
+
+`predict` takes the raw flat Essentia pool and does the per-layer feature
+selection via `audio_features.select_model_features`.
 """
+import hashlib
+import logging
+import os
 import random
 from datetime import date, timedelta
+from functools import lru_cache
+from pathlib import Path
+
+from app.services import audio_features as af
+
+# Same root-relative location audio_features uses: <root>/ml_model/
+_ML_MODEL_DIR = Path(__file__).parents[3] / "ml_model"
+_MODEL_L1_PATH = Path(
+    os.getenv("MODEL_LAYER1_PATH", str(_ML_MODEL_DIR / "model_layer1_success.pkl"))
+)
+_MODEL_L2_PATH = Path(
+    os.getenv("MODEL_LAYER2_PATH", str(_ML_MODEL_DIR / "model_layer2_youtube.pkl"))
+)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -43,150 +64,136 @@ def _next_friday(min_days: int = 14, max_days: int = 45) -> str:
     return f"Viernes, {d.day} de {meses[d.month - 1]} de {d.year}"
 
 
-def _build_features_ui(sf: dict) -> list:
-    """Build the features[] array rendered as FeatureCards in the frontend."""
-    dance_pct = int(sf["danceability"] * 100)
-    energy_pct = int(sf["energy"] * 100)
-    tempo = int(sf.get("tempo", 120))
-    mode_name = "mayor" if sf["mode"] >= 0.5 else "menor"
-    valence_pct = int(sf["valence"] * 100)
+# ── model loading ───────────────────────────────────────────────────────────────
 
-    if sf["danceability"] > 0.65:
-        dance_rec = "Alta bailabilidad — ideal para playlists de workout y fiestas. Aprovecha este perfil en las primeras 48 h."
-    elif sf["danceability"] > 0.45:
-        dance_rec = "Bailabilidad moderada. Reforzar el groove puede ampliar su alcance en playlists de baile."
-    else:
-        dance_rec = "Bailabilidad baja. Considera ajustar el patrón rítmico o el BPM para ampliar el potencial de playlist."
-
-    if sf["energy"] > 0.70:
-        energy_rec = "Energía alta — compite bien en playlists de alto impacto. Asegura que el master no sature."
-    elif sf["energy"] > 0.40:
-        energy_rec = "Energía media. Un master con más presencia puede mejorar el posicionamiento en charts."
-    else:
-        energy_rec = "Energía baja. La producción ganaría con compresión más agresiva y mid-range más definido."
-
-    if sf["valence"] > 0.55:
-        mood_rec = (
-            f"Tonalidad {mode_name} con perfil emocional positivo ({valence_pct}%) "
-            "— buen fit para radio y playlists de buen humor."
+@lru_cache(maxsize=1)
+def _load_layer1():
+    """Load the layer-1 bundle once. Returns (model, feature_order) or None."""
+    if not _MODEL_L1_PATH.exists():
+        logging.warning(
+            "Modelo capa-1 no encontrado en '%s'. Usando score heurístico de "
+            "fallback. Coloca el .pkl ahí (o define MODEL_LAYER1_PATH) para "
+            "inferencia real.",
+            _MODEL_L1_PATH,
         )
-    else:
-        mood_rec = (
-            f"Tonalidad {mode_name} con perfil más oscuro ({valence_pct}%) "
-            "— apunta a playlists de introspección o contextos nocturnos."
+        return None
+    try:
+        import joblib
+
+        bundle = joblib.load(_MODEL_L1_PATH)
+        logging.info("Modelo capa-1 cargado (%d features).", len(bundle["features"]))
+        return bundle["model"], bundle["features"]
+    except Exception as exc:  # missing sklearn/joblib, pickle mismatch, etc.
+        logging.warning(
+            "No se pudo cargar el modelo capa-1 (%s: %s). Usando score "
+            "heurístico de fallback.",
+            type(exc).__name__, exc,
         )
-
-    return [
-        {"name": "Bailabilidad", "value": f"{dance_pct}%", "recommendation": dance_rec},
-        {"name": "Energía", "value": f"{energy_pct}%", "recommendation": energy_rec},
-        {"name": "Tempo", "value": f"{tempo} BPM", "recommendation": mood_rec},
-    ]
+        return None
 
 
-def _build_recommendations(sf: dict) -> list:
-    recs = []
+@lru_cache(maxsize=1)
+def _load_layer2():
+    """Load the layer-2 bundle once. Returns (models_dict, base_features) or None."""
+    if not _MODEL_L2_PATH.exists():
+        logging.warning(
+            "Modelo capa-2 no encontrado en '%s'. Las predicciones de YouTube "
+            "quedarán en null. Coloca el .pkl ahí (o define MODEL_LAYER2_PATH).",
+            _MODEL_L2_PATH,
+        )
+        return None
+    try:
+        import joblib
 
-    if sf["instrumentalness"] > 0.45:
-        recs.append({
-            "title": "Añadir o reforzar elementos vocales",
-            "description": (
-                "El análisis detecta alta instrumentalidad. Las canciones con presencia vocal "
-                "prominente tienen mayor tasa de éxito en el Top 200 de Spotify según el modelo entrenado."
-            ),
-        })
-    else:
-        recs.append({
-            "title": "Lanzar con campaña previa",
-            "description": "Publica adelantos entre 7 y 10 días antes del lanzamiento para construir expectativa y pre-saves.",
-        })
-
-    if sf["energy"] < 0.50:
-        recs.append({
-            "title": "Incrementar la energía en la mezcla",
-            "description": (
-                "Una mezcla más densa y un master con mayor presencia pueden mejorar el rendimiento "
-                "en playlists de alto tráfico y en el algoritmo de Radio de Spotify."
-            ),
-        })
-    else:
-        recs.append({
-            "title": "Optimizar el contenido visual",
-            "description": (
-                "La energía del track es competitiva. Acompáñala con portada y clip que transmitan "
-                "el mismo impacto para maximizar el CTR en YouTube y Spotify."
-            ),
-        })
-
-    if sf["danceability"] > 0.60:
-        recs.append({
-            "title": "Apuntar a playlists de baile",
-            "description": (
-                "La alta bailabilidad lo posiciona bien en playlists de workout y fiesta. "
-                "Contacta curadores con el track ya publicado."
-            ),
-        })
-    else:
-        recs.append({
-            "title": "Impulsar la interacción inicial",
-            "description": (
-                "Durante las primeras 48 horas enfócate en comentarios, compartidos y guardados. "
-                "El algoritmo de Spotify pondera fuertemente la actividad del día 1."
-            ),
-        })
-
-    return recs
+        bundle = joblib.load(_MODEL_L2_PATH)
+        logging.info(
+            "Modelo capa-2 cargado (%s, %d features).",
+            ", ".join(bundle["models"]), len(bundle["features"]),
+        )
+        return bundle["models"], bundle["features"]
+    except Exception as exc:
+        logging.warning(
+            "No se pudo cargar el modelo capa-2 (%s: %s). YouTube → null.",
+            type(exc).__name__, exc,
+        )
+        return None
 
 
-def _build_summary(sf: dict, score: int) -> str:
-    energy_word = "alta" if sf["energy"] > 0.65 else "moderada" if sf["energy"] > 0.40 else "baja"
-    dance_word = "alta" if sf["danceability"] > 0.60 else "moderada" if sf["danceability"] > 0.40 else "baja"
-    mode_word = "mayor" if sf["mode"] >= 0.5 else "menor"
+# ── inference ───────────────────────────────────────────────────────────────────
 
-    if score >= 80:
-        outlook, action = "un sólido potencial de éxito", "Una estrategia de lanzamiento bien ejecutada puede maximizar su alcance"
-    elif score >= 60:
-        outlook, action = "un potencial competitivo dentro de su segmento", "Con ajustes estratégicos puede mejorar su posicionamiento"
-    else:
-        outlook, action = "oportunidades claras de mejora antes del lanzamiento", "Trabajar en los puntos débiles puede elevar significativamente su competitividad"
+def _heuristic_score(features: dict) -> float:
+    """Deterministic 35–94 score used only when the layer-1 model is unavailable."""
+    seed = repr(sorted(features.items())).encode()
+    h = int(hashlib.md5(seed).hexdigest(), 16)
+    return float(35 + h % 60)
 
-    return (
-        f"El análisis detectó una energía {energy_word}, bailabilidad {dance_word} "
-        f"y tonalidad {mode_word}. Con un score predictivo de {score}/100, "
-        f"la canción muestra {outlook}. {action}."
-    )
+
+def _layer1_score(flat_pool: dict) -> float:
+    """Raw layer-1 success score (0–100, continuous). Feeds both the UI and layer 2."""
+    spec = af.load_feature_spec(str(af._CAPA1_FEATURES_PATH))
+    feats = af.select_model_features(flat_pool, spec)
+
+    bundle = _load_layer1()
+    if bundle is None:
+        return _heuristic_score(feats)
+
+    import pandas as pd
+
+    model, order = bundle
+    row = {col: float(feats.get(col, 0.0)) for col in order}
+    X = pd.DataFrame([row], columns=order)  # named cols → correct order
+    raw = float(model.predict(X)[0])
+    return max(0.0, min(100.0, raw))
+
+
+def _layer2_youtube(flat_pool: dict, predicted_success: float) -> dict:
+    """Predict YouTube Views/Likes/Comments. Returns ints, or None if unavailable."""
+    bundle = _load_layer2()
+    if bundle is None:
+        return {"views": None, "likes": None, "comments": None}
+
+    import numpy as np
+    import pandas as pd
+
+    models, base_features = bundle
+    spec = af.load_feature_spec(str(af._CAPA2_FEATURES_PATH))
+    feats = af.select_model_features(flat_pool, spec)
+
+    # Column order = the 50 base features + predicted_success appended last.
+    order = list(base_features) + ["predicted_success"]
+    row = {col: float(feats.get(col, 0.0)) for col in base_features}
+    row["predicted_success"] = float(predicted_success)
+    X = pd.DataFrame([row], columns=order)
+
+    out: dict[str, int] = {}
+    for label, mdl in models.items():  # "Views", "Likes", "Comments"
+        raw = float(mdl.predict(X)[0])           # log1p scale
+        out[label.lower()] = int(round(max(0.0, float(np.expm1(raw)))))  # → real count
+
+    return {"views": out["views"], "likes": out["likes"], "comments": out["comments"]}
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def predict(features: dict[str, float]) -> dict:
-    """
-    Run inference on audio features and return the full result payload.
+def predict(flat_pool: dict) -> dict:
+    """Run both layers on a raw Essentia pool and return the full result payload.
 
-    TODO: conectar el modelo XGBoost real cuando esté entrenado.
-
-    Weights follow the XGBoost feature importances from the notebook:
-      instrumentalness (0.14) → voz > instrumento
-      loudness (0.086)        → producción potente
-      acousticness (0.083)    → sonido producido, no acústico
-      energy (0.076)
-      danceability (0.069)
+    Layer 1 → success score/rating. Layer 2 → expected YouTube engagement.
+    `features`/`summary`/`recommendations` stay empty until the UI uses the
+    new YouTube outputs for charts.
     """
-    loud_norm = min(1.0, max(0.0, (features["loudness"] + 30.0) / 30.0))
-    raw = (
-        (1.0 - features["instrumentalness"]) * 0.28 +
-        loud_norm                             * 0.18 +
-        (1.0 - features["acousticness"])      * 0.17 +
-        features["energy"]                    * 0.15 +
-        features["danceability"]              * 0.13 +
-        features["valence"]                   * 0.09
-    )
-    score = max(35, min(97, int(35 + raw * 62)))
+    raw_score = _layer1_score(flat_pool)
+    score = int(round(raw_score))
+    youtube = _layer2_youtube(flat_pool, raw_score)
 
     return {
         "rating": _score_to_rating(score),
         "score": score,
         "best_release_date": _next_friday(),
-        "features": _build_features_ui(features),
-        "summary": _build_summary(features, score),
-        "recommendations": _build_recommendations(features),
+        "features": [],
+        "summary": "",
+        "recommendations": [],
+        "expected_views": youtube["views"],
+        "expected_likes": youtube["likes"],
+        "expected_comments": youtube["comments"],
     }

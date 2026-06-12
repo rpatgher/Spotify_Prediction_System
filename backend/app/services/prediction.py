@@ -23,27 +23,37 @@ def _input_name(url: str, source: str) -> str:
     return _SOURCE_LABELS.get(source, "Análisis")
 
 
-def create_prediction(db: Session, *, user_id: str, source: str, url: str) -> Prediction:
-    """Run the full pipeline and persist the result for `user_id`."""
-    features = audio_features.extract_features(url, source)  # SEAM (stubbed)
-    result = model.predict(features)  # PLACEHOLDER
-
+def _persist(db: Session, result: dict, **base) -> Prediction:
+    """Build a Prediction row from a model result + base columns, and persist it."""
     prediction = Prediction(
-        user_id=user_id,
-        source=source,
-        input_name=_input_name(url, source),
-        input_url=url,
         rating=result["rating"],
         score=result["score"],
         best_release_date=result["best_release_date"],
         summary=result["summary"],
         features=result["features"],
         recommendations=result["recommendations"],
+        expected_views=result["expected_views"],
+        expected_likes=result["expected_likes"],
+        expected_comments=result["expected_comments"],
+        **base,
     )
     db.add(prediction)
     db.commit()
     db.refresh(prediction)
     return prediction
+
+
+def create_prediction(db: Session, *, user_id: str, source: str, url: str) -> Prediction:
+    """Run the full pipeline and persist the result for `user_id`."""
+    flat_pool = audio_features.extract_features(url, source)
+    result = model.predict(flat_pool)
+    return _persist(
+        db, result,
+        user_id=user_id,
+        source=source,
+        input_name=_input_name(url, source),
+        input_url=url,
+    )
 
 
 def get_prediction(db: Session, *, user_id: str, prediction_id) -> Prediction | None:
@@ -75,25 +85,15 @@ def create_prediction_from_file(
     db: Session, *, user_id: str, file_path: str, filename: str
 ) -> Prediction:
     """Run the full pipeline for an uploaded MP3 file and persist the result."""
-    features = audio_features.extract_features_from_path(file_path, filename)
-    result = model.predict(features)
-
-    prediction = Prediction(
+    flat_pool = audio_features.extract_features_from_path(file_path, filename)
+    result = model.predict(flat_pool)
+    return _persist(
+        db, result,
         user_id=user_id,
         source="mp3",
         input_name=filename,
         input_url=filename,
-        rating=result["rating"],
-        score=result["score"],
-        best_release_date=result["best_release_date"],
-        summary=result["summary"],
-        features=result["features"],
-        recommendations=result["recommendations"],
     )
-    db.add(prediction)
-    db.commit()
-    db.refresh(prediction)
-    return prediction
 
 
 def delete_prediction(db: Session, *, user_id: str, prediction_id) -> bool:
