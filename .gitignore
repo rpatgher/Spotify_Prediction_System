@@ -10,3 +10,7 @@ dist
 
 # Infra provenance (solo local)
 infra/IMPORT.md
+
+
+ml_model/*.pkl
+ml_model/*.csv
