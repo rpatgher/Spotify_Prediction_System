@@ -94,6 +94,13 @@ export function Icon({ name, className = "w-5 h-5", stroke = 1.7 }) {
         <circle cx="18" cy="16" r="3" />
       </>
     ),
+    info: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 11v5" />
+        <path d="M12 8h.01" />
+      </>
+    ),
     metronome: (
       <>
         <path d="M12 21V3M6 21h12" />
