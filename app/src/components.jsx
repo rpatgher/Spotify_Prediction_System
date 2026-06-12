@@ -87,6 +87,19 @@ export function Icon({ name, className = "w-5 h-5", stroke = 1.7 }) {
       </>
     ),
     bolt: <path d="M13 2L4 14h6l-1 8 9-12h-6z" />,
+    music: (
+      <>
+        <path d="M9 18V5l12-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="18" cy="16" r="3" />
+      </>
+    ),
+    metronome: (
+      <>
+        <path d="M12 21V3M6 21h12" />
+        <path d="M8 9l4-6 4 6" />
+      </>
+    ),
   };
   return <svg {...common}>{P[name] || null}</svg>;
 }
@@ -204,7 +217,7 @@ export function Card({ className = "", children, style }) {
 }
 
 // ---- FeatureCard -----------------------------------------------------
-export function FeatureCard({ feature, accent = 162 }) {
+export function FeatureCard({ feature, accent = 162, icon = "chart" }) {
   return (
     <Card className="p-5 hover:-translate-y-0.5 transition-transform">
       <div className="flex items-start justify-between gap-3">
@@ -213,7 +226,7 @@ export function FeatureCard({ feature, accent = 162 }) {
           className="grid place-items-center w-8 h-8 rounded-lg shrink-0"
           style={{ background: `oklch(0.66 0.18 ${accent} / 0.14)`, color: `oklch(0.74 0.16 ${accent})` }}
         >
-          <Icon name="chart" className="w-4 h-4" />
+          <Icon name={icon} className="w-4 h-4" />
         </span>
       </div>
       <div className="font-display text-2xl font-bold text-white mt-2 mb-3">{feature.value}</div>
