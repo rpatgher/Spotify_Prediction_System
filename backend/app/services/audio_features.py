@@ -143,34 +143,77 @@ def _extract_from_file(path: str, seed: str) -> dict[str, float]:
 
 # ── YouTube download ──────────────────────────────────────────────────────────
 
+def _proxy_pool() -> list[str]:
+    """SOCKS5 proxies for yt-dlp (Mullvad relays). Empty = direct connection."""
+    from app.core.config import settings
+    return settings.ytdlp_proxies_list
+
+
 def _download_youtube(url: str) -> str:
-    """Download first 60 s of a YouTube URL as MP3. Returns temp file path."""
+    """Download first 60 s of a YouTube URL as MP3. Returns temp file path.
+
+    Routes the download through a Mullvad SOCKS5 proxy when YTDLP_PROXIES is
+    configured, picking a random relay per attempt to rotate the exit IP and
+    dodge YouTube/yt-dlp rate-block. On failure it re-rolls onto a different
+    proxy and retries, so a single blocked relay doesn't kill the request.
+    """
     import yt_dlp
+
+    # Shuffle the proxies so each attempt uses a different exit IP. When proxies
+    # are configured we only try those (no direct fallback — a direct attempt is
+    # what gets IP-blocked). With none configured, "" = a single direct attempt.
+    proxies = _proxy_pool()
+    random.shuffle(proxies)
+    attempts: list[str] = proxies if proxies else [""]
 
     tmp_dir = Path(tempfile.mkdtemp())
     tmp_base = str(tmp_dir / "audio")
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": tmp_base,
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "retries": 3,
-        "socket_timeout": 30,
-        "postprocessors": [
-            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "128"},
-        ],
-        "postprocessor_args": {
-            "FFmpegExtractAudio": ["-ss", "0", "-t", str(AUDIO_DURATION_SEC)],
-        },
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    candidates = list(tmp_dir.glob("*.mp3"))
-    if not candidates:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise RuntimeError("yt-dlp no generó MP3. ¿FFmpeg está instalado?")
-    return str(candidates[0])
+    last_exc: Exception | None = None
+
+    for proxy in attempts:
+        # Clean any partial output from a previous failed attempt.
+        for stale in tmp_dir.glob("audio*"):
+            stale.unlink(missing_ok=True)
+
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": tmp_base,
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+            "retries": 3,
+            "socket_timeout": 30,
+            "postprocessors": [
+                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "128"},
+            ],
+            "postprocessor_args": {
+                "FFmpegExtractAudio": ["-ss", "0", "-t", str(AUDIO_DURATION_SEC)],
+            },
+        }
+        if proxy:
+            ydl_opts["proxy"] = proxy
+
+        try:
+            logging.info(
+                "yt-dlp: descargando%s...",
+                f" vía proxy {proxy}" if proxy else " (conexión directa)",
+            )
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            candidates = list(tmp_dir.glob("*.mp3"))
+            if candidates:
+                return str(candidates[0])
+            last_exc = RuntimeError("yt-dlp no generó MP3. ¿FFmpeg está instalado?")
+        except Exception as exc:  # noqa: BLE001 — retry on next proxy
+            last_exc = exc
+            logging.warning(
+                "yt-dlp falló%s (%s: %s). Reintentando con otro proxy...",
+                f" con proxy {proxy}" if proxy else "",
+                type(exc).__name__, exc,
+            )
+
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    raise last_exc or RuntimeError("yt-dlp: descarga fallida sin excepción.")
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
