@@ -71,6 +71,31 @@ def list_predictions(
     return list(db.execute(stmt).scalars().all())
 
 
+def create_prediction_from_file(
+    db: Session, *, user_id: str, file_path: str, filename: str
+) -> Prediction:
+    """Run the full pipeline for an uploaded MP3 file and persist the result."""
+    features = audio_features.extract_features_from_path(file_path, filename)
+    result = model.predict(features)
+
+    prediction = Prediction(
+        user_id=user_id,
+        source="mp3",
+        input_name=filename,
+        input_url=filename,
+        rating=result["rating"],
+        score=result["score"],
+        best_release_date=result["best_release_date"],
+        summary=result["summary"],
+        features=result["features"],
+        recommendations=result["recommendations"],
+    )
+    db.add(prediction)
+    db.commit()
+    db.refresh(prediction)
+    return prediction
+
+
 def delete_prediction(db: Session, *, user_id: str, prediction_id) -> bool:
     """Delete a prediction owned by `user_id`. Returns True if something was deleted."""
     prediction = get_prediction(db, user_id=user_id, prediction_id=prediction_id)
