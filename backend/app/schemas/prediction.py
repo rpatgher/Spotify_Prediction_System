@@ -65,3 +65,4 @@ class PredictionSummary(_CamelModel):
     created_at: datetime = Field(serialization_alias="createdAt")
     rating: str
     score: int
+    best_release_date: str = Field(serialization_alias="bestReleaseDate")
