@@ -5,10 +5,18 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY requirements.txt .
+# ffmpeg is required by yt-dlp for audio post-processing.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build context is the repo root (see docker-compose.prod.yml).
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# ml_model/ must be at /ml_model so audio_features.py can locate it
+# via Path(__file__).parents[3] (i.e. /app/app/services/../../.. -> /).
+COPY ml_model/ /ml_model/
+COPY backend/ /app/
 
 EXPOSE 8000
 

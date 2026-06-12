@@ -76,3 +76,36 @@ def get_current_user_id(
             detail="Token has no `sub` claim.",
         )
     return user_id
+
+
+def get_current_user_roles(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    x_debug_roles: str | None = Header(default=None, alias="X-Debug-Roles"),
+) -> set[str]:
+    """Realm roles of the authenticated user (Keycloak `realm_access.roles`).
+
+    Dev bypass (AUTH_ENABLED=false): roles come from the `X-Debug-Roles`
+    header (comma-separated); defaults to both roles so local flows work.
+    """
+    if not settings.AUTH_ENABLED:
+        raw = x_debug_roles if x_debug_roles is not None else "usuario,productor"
+        return {r.strip() for r in raw.split(",") if r.strip()}
+
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    claims = _decode_token(credentials.credentials)
+    return set(claims.get("realm_access", {}).get("roles", []))
+
+
+def require_producer(roles: set[str] = Depends(get_current_user_roles)) -> None:
+    """Dependency: only users with the `productor` realm role may proceed."""
+    if "productor" not in roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Requiere rol 'productor'.",
+        )

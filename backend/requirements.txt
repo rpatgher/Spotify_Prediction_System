@@ -3,7 +3,10 @@ yt-dlp>=2024.1.1
 uvicorn[standard]==0.32.1
 sqlalchemy==2.0.36
 alembic==1.14.0
-# psycopg2-binary==2.9.10  # descomentar solo si usas PostgreSQL
+psycopg2-binary==2.9.10
+# Essentia: solo hay wheel para Linux x86_64 (deploy). En Mac/Windows dev el
+# código cae al fallback de pseudo-features.
+essentia==2.1b6.dev1389; sys_platform == "linux" and platform_machine == "x86_64"
 pydantic==2.10.3
 pydantic-settings==2.6.1
 pyjwt[crypto]==2.10.1

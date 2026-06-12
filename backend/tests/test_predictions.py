@@ -54,3 +54,26 @@ def test_delete_prediction(client):
     pred_id = client.post("/api/predictions/youtube", json={"url": "https://youtu.be/z"}).json()["id"]
     assert client.delete(f"/api/predictions/{pred_id}").status_code == 204
     assert client.get(f"/api/predictions/{pred_id}").status_code == 404
+
+
+def test_mp3_upload_requires_productor_role(client):
+    """POST /mp3 with only rol 'usuario' (no 'productor') must return 403."""
+    from app.main import app
+    from app.security.auth import get_current_user_roles
+
+    # Re-override roles to just "usuario" for this test.
+    original = app.dependency_overrides.get(get_current_user_roles)
+    app.dependency_overrides[get_current_user_roles] = lambda: {"usuario"}
+    try:
+        import io
+        fake_file = io.BytesIO(b"fake audio content")
+        r = client.post(
+            "/api/predictions/mp3",
+            files={"file": ("track.mp3", fake_file, "audio/mpeg")},
+        )
+        assert r.status_code == 403
+    finally:
+        if original is not None:
+            app.dependency_overrides[get_current_user_roles] = original
+        else:
+            app.dependency_overrides.pop(get_current_user_roles, None)

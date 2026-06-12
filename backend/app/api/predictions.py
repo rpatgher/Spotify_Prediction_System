@@ -14,7 +14,7 @@ from app.schemas.prediction import (
     PredictionDetail,
     PredictionSummary,
 )
-from app.security.auth import get_current_user_id
+from app.security.auth import get_current_user_id, require_producer
 from app.services import prediction as prediction_service
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
@@ -49,6 +49,7 @@ def predict_youtube(
     response_model=PredictionCreated,
     status_code=status.HTTP_201_CREATED,
     summary="Predict from an uploaded audio file",
+    dependencies=[Depends(require_producer)],  # subir archivos: solo rol `productor`
 )
 async def predict_mp3(
     file: UploadFile = File(...),
