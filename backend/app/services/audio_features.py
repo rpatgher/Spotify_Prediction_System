@@ -1,42 +1,91 @@
 """Audio feature extraction.
 
 Pipeline:
-  YouTube URL  → yt-dlp downloads 60 s → Essentia MusicExtractor → Spotify-like features
-  MP3 file path               → Essentia MusicExtractor → Spotify-like features
+  YouTube URL  → yt-dlp downloads 60 s → Essentia MusicExtractor → model features
+  MP3 file path               → Essentia MusicExtractor → model features
+
+"Model features" = the exact 50 columns the layer-1 model expects
+(see ml_model/capa1_features.json): 47 numeric Essentia descriptors selected
+from the flattened pool, plus 3 hard-coded one-hot columns (album/official-video
+metadata that we don't extract from audio yet).
 
 If Essentia is not installed (common on Windows), falls back to deterministic
 pseudo-features derived from a hash of the input, so the full request flow
 works end-to-end even without a working audio environment.
 """
 import hashlib
+import json
 import logging
 import os
 import random
 import shutil
 import sys
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 
 # ── make extract_essentia_features.py importable ──────────────────────────────
-# Directory layout: Spotify_Prediction_System/backend/app/services/ → 3 parents up → root
+# Directory layout: <root>/backend/app/services/ → 3 parents up → root
 _ML_MODEL_DIR = str(Path(__file__).parents[3] / "ml_model")
 if _ML_MODEL_DIR not in sys.path:
     sys.path.insert(0, _ML_MODEL_DIR)
+
+# Feature spec for the layer-1 model (which Essentia keys to keep + their order).
+_CAPA1_FEATURES_PATH = Path(_ML_MODEL_DIR) / "capa1_features.json"
 
 LOWLEVEL_STATS = ["mean", "stdev"]
 MAX_ARRAY_LEN = 100
 AUDIO_DURATION_SEC = 60  # seconds of YouTube preview to download
 
-AUDIO_FEATURE_KEYS = [
-    "danceability", "energy", "key", "loudness", "mode",
-    "speechiness", "acousticness", "instrumentalness", "liveness", "valence",
-]
+# Feature spec for the layer-2 model.
+_CAPA2_FEATURES_PATH = Path(_ML_MODEL_DIR) / "capa2_features.json"
 
-_KEY_MAP = {
-    "C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3,
-    "E": 4, "F": 5, "F#": 6, "Gb": 6, "G": 7,
-    "G#": 8, "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11,
+# One-hot columns the models expect but that we don't derive from audio yet.
+# Hard-coded for now (assume: album track — not a single — with an official
+# video). Covers the columns used by both layers.
+# TODO: wire real album/video metadata once available.
+_ONEHOT_DEFAULTS: dict[str, float] = {
+    "Album_type_album": 1.0,
+    "Album_type_single": 0.0,
+    "official_video_True": 1.0,
+    "official_video_False": 0.0,
 }
+
+
+@lru_cache(maxsize=4)
+def load_feature_spec(path: str) -> dict:
+    """Load a *_features.json spec once (essentia_numeric + onehot_columns)."""
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def select_model_features(flat_pool: dict, spec: dict) -> dict[str, float]:
+    """Pick the exact features a model needs from a flat Essentia pool.
+
+    `spec` is a loaded *_features.json. Numeric features are read from the pool
+    (0.0 if missing); one-hot columns use the hard-coded defaults above.
+    Returns a dict keyed by feature name; the caller handles column ordering.
+    """
+    feats: dict[str, float] = {}
+
+    found = 0
+    for key in spec["essentia_numeric"]:
+        if key in flat_pool:
+            found += 1
+        feats[key] = float(flat_pool.get(key, 0.0))
+
+    total = len(spec["essentia_numeric"])
+    if found < total:
+        logging.warning(
+            "select_model_features: solo %d/%d features de Essentia presentes; "
+            "el resto va en 0.0 (¿config de MusicExtractor distinta al entrenamiento?).",
+            found, total,
+        )
+
+    for key in spec["onehot_columns"]:
+        feats[key] = float(_ONEHOT_DEFAULTS.get(key, 0.0))
+
+    return feats
 
 
 # ── Essentia extraction ───────────────────────────────────────────────────────
@@ -55,92 +104,33 @@ def _essentia_pool_to_flat(path: str) -> dict:
     return flatten_pool(pool, include_matrices=False, max_array_len=MAX_ARRAY_LEN)
 
 
-def _map_to_spotify_features(f: dict) -> dict[str, float]:
+def _fallback_pool(seed: str) -> dict[str, float]:
     """
-    Convert Essentia's flat feature dict to the 10 Spotify-like features
-    the model was trained on.
-
-    Mapping rationale:
-    - danceability   : rhythm.danceability (0–3) → normalised to 0–1
-    - energy         : spectral_energy.mean (tiny float) → scaled
-    - loudness       : average_loudness (0–1 Vickers) → approx dB
-    - acousticness   : inverse spectral centroid (low centroid = more acoustic)
-    - instrumentalness: inverse HFC (high-freq content low = more instrumental)
-    - speechiness    : zero-crossing rate (high = more speech-like)
-    - liveness       : spectral flux (more variation = more live)
-    - valence        : proxy from mode + danceability + energy
-    - key/mode       : key_edma
-    - tempo          : BPM from rhythm.bpm
+    Deterministic pseudo flat-pool when Essentia is unavailable. Covers the
+    Essentia keys both model layers need. Same seed → same result, so
+    re-analysing the same song is consistent. Values are meaningless audio-wise
+    — only there so the request flow works end-to-end in dev without Essentia.
     """
-    def _s(key, default=0.0):
-        return float(f.get(key, default))
+    keys = set()
+    for path in (_CAPA1_FEATURES_PATH, _CAPA2_FEATURES_PATH):
+        keys |= set(load_feature_spec(str(path))["essentia_numeric"])
 
-    danceability = min(1.0, max(0.0, _s("rhythm.danceability", 1.5) / 3.0))
-    energy = min(1.0, max(0.01, _s("lowlevel.spectral_energy.mean", 0.005) * 300))
-    tempo = max(40.0, min(250.0, _s("rhythm.bpm", 120.0)))
-    loudness = (_s("lowlevel.average_loudness", 0.8) - 1.0) * 30.0  # → approx dB
-    key = _KEY_MAP.get(str(f.get("tonal.key_edma.key", "C")), 0)
-    scale = f.get("tonal.key_edma.scale", "major")
-    mode = 1.0 if (isinstance(scale, str) and "major" in scale) else 0.0
-    centroid = max(100.0, _s("lowlevel.spectral_centroid.mean", 3000.0))
-    acousticness = max(0.0, min(1.0, 1.0 - centroid / 8000.0))
-    instrumentalness = max(0.0, min(1.0, 1.0 - _s("lowlevel.hfc.mean", 50.0) / 600.0))
-    speechiness = min(1.0, max(0.0, _s("lowlevel.zerocrossingrate.mean", 0.05) * 10.0))
-    liveness = min(1.0, max(0.0, _s("lowlevel.spectral_flux.mean", 0.2) / 0.6))
-    valence = min(1.0, max(0.0, mode * 0.3 + danceability * 0.4 + energy * 0.3))
-
-    return {
-        "danceability": danceability,
-        "energy": energy,
-        "key": float(key),
-        "loudness": loudness,
-        "mode": mode,
-        "speechiness": speechiness,
-        "acousticness": acousticness,
-        "instrumentalness": instrumentalness,
-        "liveness": liveness,
-        "valence": valence,
-        "tempo": tempo,
-    }
-
-
-def _fallback_features(seed: str) -> dict[str, float]:
-    """
-    Deterministic pseudo-features when Essentia is unavailable.
-    Same seed → same result, so re-analysing the same song gives consistent output.
-    """
     h = int(hashlib.md5(seed.encode()).hexdigest(), 16)
     rng = random.Random(h)
-
-    def r(lo: float, hi: float) -> float:
-        return round(rng.uniform(lo, hi), 3)
-
-    return {
-        "danceability": r(0.35, 0.85),
-        "energy": r(0.40, 0.90),
-        "key": float(rng.randint(0, 11)),
-        "loudness": r(-14.0, -4.0),
-        "mode": float(rng.randint(0, 1)),
-        "speechiness": r(0.03, 0.25),
-        "acousticness": r(0.05, 0.60),
-        "instrumentalness": r(0.01, 0.40),
-        "liveness": r(0.08, 0.35),
-        "valence": r(0.25, 0.85),
-        "tempo": round(rng.uniform(75.0, 175.0), 1),
-    }
+    return {key: round(rng.uniform(0.0, 1.0), 4) for key in sorted(keys)}
 
 
 def _extract_from_file(path: str, seed: str) -> dict[str, float]:
-    """Extract features from an audio file; falls back to heuristics on failure."""
+    """Extract the flat Essentia pool from an audio file; falls back on failure.
+
+    Returns the *raw* flattened pool (all descriptors); per-layer feature
+    selection happens in `model.predict` via `select_model_features`.
+    """
     try:
         logging.info("Essentia: extrayendo features de '%s'...", Path(path).name)
         raw = _essentia_pool_to_flat(path)
-        features = _map_to_spotify_features(raw)
-        logging.info(
-            "Essentia OK — danceability=%.2f  energy=%.2f  tempo=%.1f BPM",
-            features["danceability"], features["energy"], features["tempo"],
-        )
-        return features
+        logging.info("Essentia OK — %d descriptores extraídos.", len(raw))
+        return raw
     except Exception as exc:
         logging.warning(
             "Essentia no disponible (%s: %s). "
@@ -148,7 +138,7 @@ def _extract_from_file(path: str, seed: str) -> dict[str, float]:
             "Para análisis real instala Essentia en Linux/macOS/WSL.",
             type(exc).__name__, exc,
         )
-        return _fallback_features(seed)
+        return _fallback_pool(seed)
 
 
 # ── YouTube download ──────────────────────────────────────────────────────────
@@ -186,19 +176,19 @@ def _download_youtube(url: str) -> str:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def extract_features(url: str, source: str) -> dict[str, float]:
-    """Extract audio features from a YouTube URL (or any direct audio URL)."""
+    """Extract the flat Essentia pool from a YouTube URL (or direct audio URL)."""
     path = None
     try:
         path = _download_youtube(url)
         return _extract_from_file(path, seed=url)
     except Exception as exc:
         logging.warning("Descarga fallida (%s). Usando heurística.", exc)
-        return _fallback_features(url)
+        return _fallback_pool(url)
     finally:
         if path:
             shutil.rmtree(Path(path).parent, ignore_errors=True)
 
 
 def extract_features_from_path(path: str, filename: str = "") -> dict[str, float]:
-    """Extract audio features directly from a local file path (MP3 upload)."""
+    """Extract the flat Essentia pool directly from a local file (MP3 upload)."""
     return _extract_from_file(path, seed=filename or path)
