@@ -7,3 +7,6 @@ dist
 /app/test-results/
 /app/playwright-report/
 /app/playwright/.cache/
+
+# Infra provenance (solo local)
+infra/IMPORT.md
