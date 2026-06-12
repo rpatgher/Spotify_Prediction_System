@@ -8,8 +8,9 @@ import { WelcomePage } from "./pages-welcome.jsx";
 import { UserDashboardPage, ProducerDashboardPage } from "./pages-dashboard.jsx";
 import { ResultsPage } from "./pages-results.jsx";
 import { HistoryPage } from "./pages-history.jsx";
+import { InfoPage } from "./pages-info.jsx";
 
-const ROUTES = ["/welcome", "/user", "/producer", "/results", "/history"];
+const ROUTES = ["/welcome", "/user", "/producer", "/results", "/history", "/info"];
 
 function useHashRoute() {
   const read = () => {
@@ -61,6 +62,7 @@ export default function App() {
   else if (route === "/producer") page = <ProducerDashboardPage navigate={navigate} loading={loading} setLoading={setLoading} onResult={() => force((n) => n + 1)} />;
   else if (route === "/results") page = <ResultsPage navigate={navigate} session={session} />;
   else if (route === "/history") page = <HistoryPage navigate={navigate} session={session} />;
+  else if (route === "/info") page = <InfoPage navigate={navigate} session={session} />;
   else page = <UserDashboardPage navigate={navigate} loading={loading} setLoading={setLoading} onResult={() => force((n) => n + 1)} />;
 
   return (

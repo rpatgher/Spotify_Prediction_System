@@ -6,7 +6,51 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.api import health, predictions
 from app.core.config import settings
 
-app = FastAPI(title=settings.APP_NAME)
+_DESCRIPTION = """
+## TrackWise Backend API
+
+Predice el potencial de éxito de una canción en Spotify y el engagement esperado en YouTube
+usando dos capas de modelos Random Forest entrenados con features de audio (Essentia).
+
+### Capas del modelo
+
+| Capa | Input | Output |
+|------|-------|--------|
+| **Layer 1** | 50 features de audio | `score` (0–100) + `rating` (A–F) |
+| **Layer 2** | features de audio + score de capa 1 | `expectedViews`, `expectedLikes`, `expectedComments` |
+
+### Autenticación
+
+Todos los endpoints de predicción requieren un **Bearer JWT** emitido por Keycloak.
+
+**Modo desarrollo** (`AUTH_ENABLED=false`): en lugar del token usa el header
+`X-Debug-User: <user-id>`. Para endpoints de productor añade `X-Debug-Roles: productor`.
+
+### Roles
+
+- `usuario` — puede analizar desde YouTube y consultar su historial.
+- `productor` — además puede subir archivos de audio (MP3/WAV/FLAC/…).
+"""
+
+app = FastAPI(
+    title=settings.APP_NAME,
+    description=_DESCRIPTION,
+    version="1.0.0",
+    contact={"name": "TrackWise Team"},
+    openapi_tags=[
+        {
+            "name": "health",
+            "description": "Healthcheck sin autenticación. Útil para probes de Kubernetes / Docker.",
+        },
+        {
+            "name": "predictions",
+            "description": (
+                "Crear, consultar y eliminar predicciones. "
+                "Todos los recursos están aislados por usuario (`sub` del JWT)."
+            ),
+        },
+    ],
+)
 
 app.add_middleware(
     CORSMiddleware,

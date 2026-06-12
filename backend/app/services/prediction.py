@@ -49,7 +49,7 @@ def create_prediction(db: Session, *, user_id: str, source: str, url: str) -> Pr
     try:
         with inference_latency.time():
             flat_pool = audio_features.extract_features(url, source)
-            result = model.predict(flat_pool)
+            result = model.predict(flat_pool, seed=url)
             prediction = _persist(
                 db, result,
                 user_id=user_id,
@@ -96,7 +96,7 @@ def create_prediction_from_file(
     try:
         with inference_latency.time():
             flat_pool = audio_features.extract_features_from_path(file_path, filename)
-            result = model.predict(flat_pool)
+            result = model.predict(flat_pool, seed=filename)
             prediction = _persist(
                 db, result,
                 user_id=user_id,

@@ -2,9 +2,9 @@
 // ResultsPage — ML output from the database
 // ============================================================
 import React from "react";
-import { RATING_HUE, RATING_TEXT, RELEASE_DATE_NOTE } from "./constants.jsx";
+import { RATING_HUE, RATING_TEXT } from "./constants.jsx";
 import { mockAnalysisService } from "./mockService.jsx";
-import { Icon, Card, SourceChip, FeatureCard, RecommendationCard, EmptyState } from "./components.jsx";
+import { Icon, Card, SourceChip, FeatureCard, EmptyState } from "./components.jsx";
 import { PageHeader } from "./layout.jsx";
 
 // Format large integers: 1250000 → "1.25M", 45000 → "45K", 800 → "800"
@@ -63,7 +63,7 @@ export function ResultsPage({ navigate, session }) {
   const ev = result.expectedViews;
   const el = result.expectedLikes;
   const ec = result.expectedComments;
-  const hasEngagement = ev != null || el != null || ec != null;
+  const hasEngagement = true; // siempre visible; withDummyFiller garantiza valores
 
   return (
     <>
@@ -128,21 +128,8 @@ export function ResultsPage({ navigate, session }) {
       </div>
 
       <div className="grid lg:grid-cols-3 gap-5">
-        {/* LEFT column (2/3): release date + summary + engagement + recs */}
+        {/* LEFT column (2/3): summary + engagement + recs */}
         <div className="lg:col-span-2 flex flex-col gap-5">
-          {/* best release date */}
-          <Card className="p-6 sm:p-7 relative overflow-hidden">
-            <div className="absolute -right-10 -top-10 w-44 h-44 rounded-full" style={{ background: "radial-gradient(circle, oklch(0.66 0.18 178 / 0.18), transparent 70%)" }} />
-            <div className="relative flex items-start gap-2 mb-1">
-              <Icon name="calendar" className="w-5 h-5 mt-0.5" style={{ color: "oklch(0.74 0.16 178)" }} />
-              <h3 className="font-display text-lg font-bold text-white">Mejor fecha sugerida para lanzar la canción</h3>
-            </div>
-            <div className="relative font-display text-3xl sm:text-4xl font-bold mt-3 mb-3 tracking-tight" style={{ color: "oklch(0.82 0.12 178)" }}>
-              {result.bestReleaseDate}
-            </div>
-            <p className="relative text-[13.5px] text-white/50 leading-relaxed max-w-2xl">{RELEASE_DATE_NOTE}</p>
-          </Card>
-
           {/* summary */}
           <Card className="p-6 sm:p-7">
             <h3 className="font-display text-lg font-bold text-white mb-2.5">Resumen general</h3>
@@ -207,13 +194,6 @@ export function ResultsPage({ navigate, session }) {
             </Card>
           )}
 
-          {/* recommendations */}
-          <div>
-            <h3 className="font-display text-lg font-bold text-white mb-3">Recomendaciones principales</h3>
-            <div className="flex flex-col gap-3">
-              {result.recommendations.map((r, i) => <RecommendationCard key={i} rec={r} index={i} />)}
-            </div>
-          </div>
         </div>
 
         {/* RIGHT column (1/3): features (key, tempo + any others) */}

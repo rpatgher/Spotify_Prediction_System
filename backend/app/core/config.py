@@ -24,12 +24,28 @@ class Settings(BaseSettings):
     KEYCLOAK_JWKS_URL: str = ""
     KEYCLOAK_AUDIENCE: str = ""
 
+    # ---- yt-dlp proxy (Mullvad SOCKS5) ----
+    # Comma-separated list of SOCKS5 proxy URLs that yt-dlp routes downloads
+    # through, e.g. "socks5://127.0.0.1:1080,socks5://127.0.0.1:1081".
+    # One per Mullvad relay exposed by the mullvad-apisocks5 utility. A random
+    # entry is chosen per download to rotate the exit IP. Empty = direct
+    # connection (no proxy).
+    YTDLP_PROXIES: str = ""
+
+    # Mullvad account number (used by the mullvad daemon / mullvad-apisocks5
+    # login, not by the app directly). Secret — keep it in the gitignored .env.
+    MULLVAD_ACCOUNT: str = ""
+
     @property
     def cors_origins_list(self) -> list[str]:
         raw = self.CORS_ORIGINS.strip()
         if raw == "*":
             return ["*"]
         return [o.strip() for o in raw.split(",") if o.strip()]
+
+    @property
+    def ytdlp_proxies_list(self) -> list[str]:
+        return [p.strip() for p in self.YTDLP_PROXIES.split(",") if p.strip()]
 
 
 @lru_cache

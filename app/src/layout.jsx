@@ -10,6 +10,7 @@ export function Sidebar({ role, route, navigate, onLogout, mobileOpen, setMobile
   const items = [
     { key: role === "producer" ? "producer" : "user", label: role === "producer" ? "Analizar producción" : "Analizar canción", icon: "analyze" },
     { key: "history", label: "Historial", icon: "history" },
+    { key: "info", label: "Cómo funciona", icon: "info" },
   ];
   const go = (k) => { navigate("/" + k); setMobileOpen(false); };
 

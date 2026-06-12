@@ -45,11 +45,11 @@ _MODEL_L2_PATH = Path(
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _score_to_rating(score: int) -> str:
-    if score >= 90: return "A"
-    if score >= 80: return "B"
-    if score >= 65: return "C"
-    if score >= 50: return "D"
-    if score >= 35: return "E"
+    if score >= 60: return "A"
+    if score >= 50: return "B"
+    if score >= 40: return "C"
+    if score >= 30: return "D"
+    if score >= 18: return "E"
     return "F"
 
 
@@ -175,12 +175,11 @@ def _layer2_youtube(flat_pool: dict, predicted_success: float) -> dict:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def predict(flat_pool: dict) -> dict:
+def predict(flat_pool: dict, seed: str = "") -> dict:
     """Run both layers on a raw Essentia pool and return the full result payload.
 
     Layer 1 → success score/rating. Layer 2 → expected YouTube engagement.
-    `features`/`summary`/`recommendations` stay empty until the UI uses the
-    new YouTube outputs for charts.
+    `features` is populated from the Essentia pool (Tempo + Key).
     """
     raw_score = _layer1_score(flat_pool)
     score = int(round(raw_score))
@@ -190,7 +189,7 @@ def predict(flat_pool: dict) -> dict:
         "rating": _score_to_rating(score),
         "score": score,
         "best_release_date": _next_friday(),
-        "features": [],
+        "features": af.extract_display_features(flat_pool, seed),
         "summary": "",
         "recommendations": [],
         "expected_views": youtube["views"],

@@ -52,17 +52,31 @@ function suggestReleaseDate() {
   return out.charAt(0).toUpperCase() + out.slice(1);
 }
 
-// Re-randomize feature display values around the defaults for realism.
+// Fallback display features (BPM + Key) used only when the backend returns
+// an empty features array. Mirrors the shape extract_display_features() produces.
+const _KEYS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 function buildFeatures() {
-  const plays = [randInt(60, 200), 0];
-  plays[1] = plays[0] + randInt(60, 180);
-  const views = [randInt(40, 150), 0];
-  views[1] = views[0] + randInt(50, 140);
-  const eng = (Math.random() * 8 + 3).toFixed(1);
+  const bpm = randInt(70, 169);
+  const key = _KEYS[randInt(0, 11)];
+  const major = Math.random() > 0.4;
+  const scaleLabel = major ? "Mayor" : "Menor";
   return [
-    { ...DEFAULT_FEATURES[0], value: `${plays[0]}K - ${plays[1]}K` },
-    { ...DEFAULT_FEATURES[1], value: `${views[0]}K - ${views[1]}K` },
-    { ...DEFAULT_FEATURES[2], value: `${eng}%` },
+    {
+      name: "Tempo",
+      value: `${bpm} BPM`,
+      recommendation: bpm < 100
+        ? "Tempo moderado, versátil para pop y R&B."
+        : bpm < 130
+        ? "Tempo óptimo para pop y dance. Alta receptividad en streaming."
+        : "Tempo rápido. Funciona bien en géneros de alta energía.",
+    },
+    {
+      name: "Key",
+      value: `${key} ${scaleLabel}`,
+      recommendation: major
+        ? `Tonalidad de ${key} mayor: transmite energía positiva, popular en pop comercial.`
+        : `Tonalidad de ${key} menor: profundidad emocional, ideal para R&B e indie.`,
+    },
   ];
 }
 
@@ -176,11 +190,8 @@ function findUserRole(name) {
 }
 
 // ============================================================
-// withDummyFiller — TEMPORAL hasta que el backend devuelva
-// features, summary y recommendations reales.
-// Mezcla el resultado real del API con relleno dummy SOLO para
-// los campos vacíos. Score, rating, bestReleaseDate y expected*
-// NUNCA se tocan: vienen reales del backend.
+// withDummyFiller — TEMPORAL hasta que el backend devuelva todos
+// los campos reales. Rellena SOLO los campos vacíos o nulos.
 // ============================================================
 export function withDummyFiller(result) {
   const filled = { ...result };
@@ -195,6 +206,15 @@ export function withDummyFiller(result) {
 
   if (!filled.recommendations || filled.recommendations.length === 0) {
     filled.recommendations = DEFAULT_RECOMMENDATIONS;
+  }
+
+  // Layer 2: si el modelo no estaba disponible en el backend (null),
+  // generamos valores mock plausibles basados en el score.
+  if (filled.expectedViews == null) {
+    const base = (filled.score ?? 50) / 100;
+    filled.expectedViews    = Math.round((50_000 + base * 950_000) / 1000) * 1000;
+    filled.expectedLikes    = Math.round(filled.expectedViews * (0.04 + base * 0.06));
+    filled.expectedComments = Math.round(filled.expectedViews * (0.002 + base * 0.008));
   }
 
   return filled;
