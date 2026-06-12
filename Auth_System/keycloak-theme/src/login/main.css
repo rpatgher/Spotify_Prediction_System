@@ -1,0 +1,170 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+    --font-display: "Space Grotesk", system-ui, sans-serif;
+    --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+}
+
+:root {
+    color-scheme: dark;
+}
+html,
+body,
+#root {
+    height: 100%;
+}
+body {
+    margin: 0;
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    background:
+        radial-gradient(1200px 600px at 80% -10%, oklch(0.24 0.05 162 / 0.5), transparent 60%),
+        radial-gradient(900px 500px at 0% 110%, oklch(0.22 0.05 178 / 0.4), transparent 60%),
+        oklch(0.145 0.015 190);
+    color: #fff;
+    -webkit-font-smoothing: antialiased;
+}
+::selection {
+    background: oklch(0.66 0.2 162 / 0.4);
+}
+
+/* scrollbar */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+::-webkit-scrollbar-thumb {
+    background: oklch(0.3 0.02 190);
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.38 0.02 190);
+    background-clip: content-box;
+}
+
+/* ---- surfaces ---- */
+.card {
+    background: oklch(0.185 0.018 190);
+    border: 1px solid oklch(1 0 0 / 0.07);
+    border-radius: 18px;
+    box-shadow: 0 18px 40px -24px rgba(0, 0, 0, 0.7);
+}
+
+/* ---- buttons ---- */
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 14px;
+    color: #fff;
+    cursor: pointer;
+    background: linear-gradient(135deg, oklch(0.62 0.2 162), oklch(0.6 0.18 178));
+    box-shadow: 0 12px 26px -10px oklch(0.6 0.2 162 / 0.8);
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.15s ease,
+        filter 0.15s ease;
+    border: none;
+}
+.btn-primary:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.06);
+    box-shadow: 0 16px 32px -10px oklch(0.6 0.2 162 / 0.9);
+}
+.btn-primary:active {
+    transform: translateY(0);
+}
+.btn-primary:disabled {
+    opacity: 0.6;
+    cursor: default;
+    transform: none;
+}
+
+/* ---- fields ---- */
+.field {
+    width: 100%;
+    padding: 13px 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    color: #fff;
+    background: oklch(0.2 0.02 190);
+    border: 1.5px solid oklch(1 0 0 / 0.08);
+    outline: none;
+    transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
+    font-family: inherit;
+}
+.field::placeholder {
+    color: rgba(178, 178, 178, 0.32);
+}
+.field:focus {
+    border-color: oklch(0.66 0.18 162 / 0.7);
+    box-shadow: 0 0 0 4px oklch(0.66 0.18 162 / 0.14);
+}
+
+/* ---- segmented ---- */
+.seg {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 12px;
+    background: oklch(0.2 0.02 190);
+    border: 1px solid oklch(1 0 0 / 0.06);
+}
+.seg-btn {
+    padding: 7px 16px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(178, 178, 178, 0.5);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    text-decoration: none;
+    transition: all 0.15s ease;
+}
+.seg-btn:hover {
+    color: #fff;
+}
+.seg-btn--active {
+    color: #fff;
+    background: oklch(0.28 0.03 190);
+}
+
+/* ---- decorative ---- */
+.orb {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(70px);
+    opacity: 0.4;
+}
+.float-card {
+    animation: floaty 6s ease-in-out infinite;
+}
+.float-card:nth-child(2) {
+    animation-delay: 1.4s;
+}
+.float-card:nth-child(3) {
+    animation-delay: 2.6s;
+}
+@keyframes floaty {
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-12px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .float-card {
+        animation: none !important;
+    }
+}

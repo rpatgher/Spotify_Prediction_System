@@ -1,16 +1,15 @@
 // ============================================================
-// App — hash router + simulated session guard
+// App — hash router + Keycloak session guard
 // ============================================================
 import React, { useState as useStateApp, useEffect as useEffectApp } from "react";
-import { mockAnalysisService } from "./mockService.jsx";
+import keycloak, { sessionFromToken, APP_BASE_URL } from "./keycloak.js";
 import { AppLayout } from "./layout.jsx";
 import { WelcomePage } from "./pages-welcome.jsx";
-import { LoginPage } from "./pages-auth.jsx";
 import { UserDashboardPage, ProducerDashboardPage } from "./pages-dashboard.jsx";
 import { ResultsPage } from "./pages-results.jsx";
 import { HistoryPage } from "./pages-history.jsx";
 
-const ROUTES = ["/welcome", "/login", "/user", "/producer", "/results", "/history"];
+const ROUTES = ["/welcome", "/user", "/producer", "/results", "/history"];
 
 function useHashRoute() {
   const read = () => {
@@ -32,30 +31,28 @@ function useHashRoute() {
 
 export default function App() {
   const [route, navigate] = useHashRoute();
-  const [session, setSession] = useStateApp(() => mockAnalysisService.getSession());
+  const session = sessionFromToken(keycloak); // resolved by keycloak.init() before render
   const [loading, setLoading] = useStateApp(false);
   const [, force] = useStateApp(0); // bump to refresh after saving analysis
 
   // ---- session guards -------------------------------------------------
   useEffectApp(() => {
-    const authed = !!session;
-    if (!authed) {
-      if (route !== "/login" && route !== "/welcome") navigate("/welcome");
+    if (!session) {
+      if (route !== "/welcome") navigate("/welcome");
       return;
     }
-    if (route === "/login" || route === "/welcome") { navigate(session.role === "producer" ? "/producer" : "/user"); return; }
+    if (route === "/welcome") { navigate(session.role === "producer" ? "/producer" : "/user"); return; }
     // keep roles on their own dashboard
     if (route === "/producer" && session.role !== "producer") navigate("/user");
     if (route === "/user" && session.role === "producer") navigate("/producer");
   }, [route, session]);
 
-  const handleLogin = (s) => { mockAnalysisService.setSession(s); setSession(s); };
-  const handleLogout = () => { mockAnalysisService.clearSession(); setSession(null); navigate("/login"); };
+  const handleLogin = () => keycloak.login({ redirectUri: APP_BASE_URL });
+  const handleLogout = () => keycloak.logout({ redirectUri: APP_BASE_URL });
 
-  // ---- welcome / login (no shell) -------------------------------------
+  // ---- welcome (no shell) ----------------------------------------------
   if (!session) {
-    if (route === "/login") return <LoginPage navigate={navigate} onLogin={handleLogin} />;
-    return <WelcomePage navigate={navigate} />;
+    return <WelcomePage onStart={handleLogin} />;
   }
 
   // ---- authed shell ---------------------------------------------------
