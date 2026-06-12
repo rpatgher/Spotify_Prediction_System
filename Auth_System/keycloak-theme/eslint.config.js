@@ -5,7 +5,6 @@ import reactHooks from "eslint-plugin-react-hooks";
 import eslintConfigPrettier from "eslint-config-prettier";
 import globals from "globals";
 import js from "@eslint/js";
-import storybook from "eslint-plugin-storybook";
 
 export default typescriptEslint.config(
   js.configs.recommended,
@@ -13,7 +12,6 @@ export default typescriptEslint.config(
   react.configs.flat.recommended,
   react.configs.flat["jsx-runtime"],
   eslintConfigPrettier,
-  ...storybook.configs["flat/recommended"],
   {
     ignores: ["dist/**", "public/**"],
   },
@@ -37,12 +35,6 @@ export default typescriptEslint.config(
       "react-hooks/exhaustive-deps": "off",
       "@typescript-eslint/no-redeclare": "off",
       "no-labels": "off",
-    },
-  },
-  {
-    files: ["**/*.stories.*"],
-    rules: {
-      "import/no-anonymous-default-export": "off",
     },
   },
 );
