@@ -162,6 +162,8 @@ def predict(features: dict[str, float]) -> dict:
     """
     Run inference on audio features and return the full result payload.
 
+    TODO: conectar el modelo XGBoost real cuando esté entrenado.
+
     Weights follow the XGBoost feature importances from the notebook:
       instrumentalness (0.14) → voz > instrumento
       loudness (0.086)        → producción potente
