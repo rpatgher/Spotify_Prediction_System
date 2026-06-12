@@ -73,4 +73,32 @@ export async function analyzeMp3File(file) {
   return fetchResult(id, headers);
 }
 
-export const apiService = { analyzeYouTubeLink, analyzeMp3File };
+// ---- historial ----------------------------------------------------------
+
+export async function getHistory({ source = "", limit = 50, offset = 0 } = {}) {
+  const headers = await authHeaders();
+  const params = new URLSearchParams();
+  if (source) params.set("source", source);
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  const res = await fetch(`${API_BASE}/api/predictions?${params}`, { headers });
+  if (!res.ok) throw httpError(res.status);
+  return res.json(); // PredictionSummary[]
+}
+
+export async function getAnalysis(id) {
+  const headers = await authHeaders();
+  return fetchResult(id, headers); // PredictionDetail
+}
+
+export async function deleteAnalysis(id) {
+  const headers = await authHeaders();
+  const res = await fetch(`${API_BASE}/api/predictions/${id}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) throw httpError(res.status);
+  // 204 No Content — no body
+}
+
+export const apiService = { analyzeYouTubeLink, analyzeMp3File, getHistory, getAnalysis, deleteAnalysis };
